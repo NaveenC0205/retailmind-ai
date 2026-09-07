@@ -10,6 +10,7 @@ learned, never a crash and never an empty answer.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Optional
 
@@ -304,7 +305,12 @@ class Orchestrator:
                 clean_text = f"[Shop owner dashboard] {clean_text}"
                 route_text = f"[Shop owner dashboard] {route_text}"
             facts = await self._prime_customer(facts)
-            facts = await self._prime_rag(route_text, facts)
+            policyish = intent == "policy" or any(
+                k in (route_text or "").lower()
+                for k in ("policy", "warranty", "return window", "exchange policy")
+            )
+            if policyish or self.persona == "owner":
+                facts = await self._prime_rag(route_text, facts)
 
             # Shop chat always asks for multi_agent; still run dedicated RAG
             # when the question is a policy lookup so answers stay cited.
@@ -458,17 +464,39 @@ class Orchestrator:
             context.add(Provenance.RETRIEVED, f"{c['heading']}\n{c['content']}", source_id=c["id"])
         context.add(Provenance.USER, text)
 
-        completion = await self.router.complete(
-            CompletionRequest(
-                prompt=context.render(),
-                system=get_prompt("rag_system", self.prompt_version),
-                purpose="rag_answer",
-                meta={"user_text": text, "chunks": chunks},
+        fallback = ""
+        if chunks:
+            top = chunks[0]
+            fallback = f"{(top.get('content') or '').strip()[:520]} [{top.get('id')}]"
+        else:
+            fallback = (
+                "I don't have a policy document that covers that, so I won't guess. "
+                "I can raise a support ticket if you'd like a human to confirm."
             )
-        )
+
+        s = get_settings()
+        answer = ""
+        try:
+            complete = self.router.complete(
+                CompletionRequest(
+                    prompt=context.render(),
+                    system=get_prompt("rag_system", self.prompt_version),
+                    purpose="rag_answer",
+                    meta={"user_text": text, "chunks": chunks},
+                )
+            )
+            if s.llm_provider == "mock" or s.cassette_mode == "replay":
+                completion = await complete
+            else:
+                completion = await asyncio.wait_for(complete, timeout=8)
+            answer = (completion.text or "").strip()
+        except Exception:  # noqa: BLE001 — live RAG must not hang the shop chat
+            answer = ""
+        if not answer:
+            answer = fallback
         self.steps += 1
         terminal = TerminalState.COMPLETED if chunks else TerminalState.PARTIAL
-        return completion.text, terminal, [], facts["citation_ids"], facts, ""
+        return answer, terminal, [], facts["citation_ids"], facts, ""
 
     async def _prime_customer(self, facts: dict) -> dict:
         """Mark login state. Order rows are fetched by the order agent on demand
@@ -537,10 +565,6 @@ class Orchestrator:
         """Guest/customer browse questions should hit search_products, not a live ReAct hang."""
         if self.persona == "owner":
             return False
-        from app.llm.mock import wants_comparison
-
-        if wants_comparison(text):
-            return False
         low = (text or "").lower()
         if any(
             k in low
@@ -584,6 +608,9 @@ class Orchestrator:
                 "show me",
                 "looking for",
                 "dikhao",
+                "compare",
+                "laptop",
+                "phone",
             )
         )
 
@@ -603,7 +630,9 @@ class Orchestrator:
             price = int(p.get("price_inr") or 0)
             rating = p.get("rating")
             brand = p.get("brand") or ""
-            lines.append(f"• {p.get('title')} ({brand}) — ₹{price:,} · rating {rating}")
+            ram = (p.get("attributes") or {}).get("ram_gb")
+            ram_bit = f" · {ram}GB RAM" if ram else ""
+            lines.append(f"• {p.get('title')} ({brand}) — ₹{price:,} · rating {rating}{ram_bit}")
         if not facts.get("logged_in"):
             lines.append(
                 "\nWant one of these? Sign in and tell me UPI, Card, or Cash on delivery and I’ll place it."
@@ -613,47 +642,8 @@ class Orchestrator:
         return "\n".join(lines)
 
     async def _compose_catalogue_reply(self, text: str, products: list, facts: dict) -> str:
-        """One ChatGPT-style completion grounded in catalogue rows. Falls back to a list."""
-        fallback = self._format_catalogue_answer(products, facts, text)
-        s = get_settings()
-        live = s.llm_provider != "mock" and bool(s.openai_api_key)
-        if not live or s.cassette_mode == "replay":
-            return fallback
-        catalog = "\n".join(
-            f"- {p.get('title')} | {p.get('brand')} | ₹{int(p.get('price_inr') or 0):,} | rating {p.get('rating')}"
-            for p in products
-        ) or "(no matching products)"
-        system = (
-            "You are ShopZone, a warm shopping assistant similar to ChatGPT. "
-            "The customer may misspell, skip letters, or mix Hindi, Hinglish, and English. "
-            "Infer what they meant. Answer naturally using ONLY the catalogue rows. "
-            "Never invent a price, product, or discount. Keep it under 160 words. "
-            "Always reply in English only. "
-            "End with one useful follow-up question."
-        )
-        prompt = (
-            f"Customer typed: {facts.get('original_query') or text}\n"
-            f"Normalized as: {facts.get('understood_query') or text}\n"
-            f"Logged in: {bool(facts.get('logged_in'))}\n"
-            f"Catalogue:\n{catalog}\n"
-        )
-        try:
-            from app.llm.base import CompletionRequest
-
-            completion = await self.router.complete(
-                CompletionRequest(
-                    prompt=prompt,
-                    system=system,
-                    purpose="chat",
-                    max_tokens=350,
-                    temperature=0.4,
-                    meta={"user_text": text, "facts": facts},
-                )
-            )
-            text_out = (completion.text or "").strip()
-            return text_out or fallback
-        except Exception:  # noqa: BLE001 — catalogue list is the safe fallback
-            return fallback
+        """Catalogue list from tools. Live polish used to hang shop chat on Vercel."""
+        return self._format_catalogue_answer(products, facts, text)
 
     async def _notify(self, event_sink, payload: dict) -> None:
         if not event_sink:
@@ -666,7 +656,13 @@ class Orchestrator:
         """Answer catalogue/price searches without LangGraph so guests get ₹ prices quickly."""
         if not self._is_catalogue_browse(text, intent):
             return None
-        from app.llm.mock import extract_budget_inr, extract_category
+        from app.llm.mock import (
+            extract_budget_inr,
+            extract_category,
+            extract_min_ram_gb,
+            extract_min_rating,
+            wants_comparison,
+        )
 
         await self._notify(
             event_sink,
@@ -684,6 +680,12 @@ class Orchestrator:
         budget = extract_budget_inr(text)
         if budget:
             args["max_price_inr"] = budget
+        ram = extract_min_ram_gb(text)
+        if ram:
+            args["min_ram_gb"] = ram
+        rating = extract_min_rating(text)
+        if rating:
+            args["min_rating"] = rating
         result = await self.gateway.call("search_products", args)
         if not result.ok:
             await self._notify(
@@ -699,7 +701,20 @@ class Orchestrator:
             return None
         facts = absorb(facts, "search_products", result.data)
         products = result.data.get("products") or []
+        tools_used = ["search_products"]
+        extra = ""
+        if wants_comparison(text) and len(products) >= 2:
+            ids = [p["product_id"] for p in products[:4]]
+            cmp_res = await self.gateway.call("compare_products", {"product_ids": ids})
+            if cmp_res.ok:
+                tools_used.append("compare_products")
+                facts = absorb(facts, "compare_products", cmp_res.data)
+                best = cmp_res.data.get("best_rated_product_id")
+                cheap = cmp_res.data.get("cheapest_product_id")
+                extra = f"\nBest rated: {best}. Cheapest: {cheap}."
         answer = await self._compose_catalogue_reply(text, products, facts)
+        if extra:
+            answer = answer + extra
         await self._notify(
             event_sink,
             {
@@ -716,7 +731,7 @@ class Orchestrator:
                 task="catalogue browse",
                 summary=answer,
                 steps=max(self.steps, 1),
-                tools=["search_products"],
+                tools=tools_used,
                 terminal_state=TerminalState.COMPLETED.value,
             ).__dict__
         ]
@@ -792,27 +807,35 @@ class Orchestrator:
         return ""
 
     def _is_simple_order_list(self, text: str, intent: str) -> bool:
-        """True for 'check/show my orders' — not tracking, returns, checkout, or combos."""
+        """True for 'check/show my orders' and 'track my latest' without a specific OR- id."""
         if self.persona == "owner":
             return False
+        from app.llm.mock import extract_order_id
+
         low = (text or "").lower()
         if any(
             k in low
             for k in (
-                "cancel", "return", "refund", "promo", "discount", "coupon",
-                "policy", "place order", "buy ", "track", "where is",
-                "shipment", "awb",
+                "cancel", "refund", "promo", "discount", "coupon",
+                "policy", "place order", "buy ", "shipment", "awb",
             )
         ):
             return False
-        if intent == "order_list":
+        if "return" in low and "policy" not in low and intent != "order_list":
+            if intent in {"return_item"}:
+                return False
+        oid = extract_order_id(text)
+        if oid and ("where is" in low or "track" in low):
+            return False
+        if intent in {"order_list", "order_status"} and not oid:
             return True
         return any(
             k in low
             for k in (
                 "check order", "check orders", "show order", "show orders",
                 "see order", "see orders", "list order", "my orders",
-                "order history", "all my order", "irders",
+                "order history", "all my order", "irders", "track my",
+                "latest order", "my latest",
             )
         )
 

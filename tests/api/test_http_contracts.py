@@ -76,6 +76,27 @@ async def test_guest_typo_search_returns_iphone_prices(client):
     assert "₹" in answer or "69900" in answer.replace(",", "")
 
 
+async def test_laptop_ram_search_returns_a_priced_list(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "Laptops under 80000 with 16GB RAM", "mode": "multi_agent"},
+    )).json()
+    assert body["answer"].strip()
+    assert "no answer" not in body["answer"].lower()
+    assert "₹" in body["answer"] or "laptop" in body["answer"].lower()
+
+
+async def test_compare_phones_returns_a_catalogue_answer(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "Compare phones rating 4.5+", "mode": "multi_agent"},
+    )).json()
+    assert body["answer"].strip()
+    assert "no answer" not in body["answer"].lower()
+    low = body["answer"].lower()
+    assert "phone" in low or "₹" in body["answer"] or "rating" in low
+
+
 async def test_chat_conversation_is_scoped_to_the_caller(client):
     first = (await client.post("/api/chat", json={"message": "hello"}, headers=NAVEEN)).json()
     stolen = (await client.post(

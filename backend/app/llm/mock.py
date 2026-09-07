@@ -98,6 +98,35 @@ def extract_budget_inr(text: str) -> Optional[int]:
     return None
 
 
+def extract_min_ram_gb(text: str) -> Optional[int]:
+    low = (text or "").lower()
+    m = re.search(r"(\d+)\s*gb(?:\s*ram)?", low)
+    if not m:
+        m = re.search(r"ram\s*(\d+)", low)
+    if not m:
+        return None
+    n = int(m.group(1))
+    if n in {6, 8, 12, 16, 24, 32, 64}:
+        return n
+    return None
+
+
+def extract_min_rating(text: str) -> Optional[float]:
+    low = (text or "").lower()
+    m = re.search(r"rating\s*(\d+(?:\.\d+)?)\s*\+?", low)
+    if not m:
+        m = re.search(r"(\d(?:\.\d)?)\s*\+", low)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    if 0 <= val <= 5:
+        return val
+    return None
+
+
 def extract_payment_method(text: str) -> Optional[str]:
     low = (text or "").lower()
     if "cod" in low or "cash on delivery" in low or "cash-on-delivery" in low:

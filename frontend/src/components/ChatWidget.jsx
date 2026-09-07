@@ -210,10 +210,11 @@ export default function ChatWidget({
         approval: final?.approval_id,
         agents: (final?.sub_results || []).map((s) => s.agent).filter(Boolean),
       })
+      const rawAnswer = String(final?.answer || '').trim()
       const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 140)}`).join('\n')
       const cites = (final?.citations || []).slice(0, 4)
       const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
-      const answer = (final?.answer || 'No answer') + (sub ? `\n\n${sub}` : '') + citeLine
+      const answer = (rawAnswer || 'I could not finish that reply. Try once more — search, return policy, or your orders.') + (sub && rawAnswer ? `\n\n${sub}` : '') + citeLine
       setMsgs((m) => {
         const copy = [...m]
         copy[copy.length - 1] = { role: 'bot', text: answer }

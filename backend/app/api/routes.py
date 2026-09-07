@@ -313,11 +313,14 @@ async def chat_stream(
                 persona=body.persona,
                 product_id=body.product_id or "",
             )
-            result = await orch.run(
-                body.message,
-                conversation_id=conversation_id,
-                mode=mode,
-                event_sink=event_sink,
+            result = await asyncio.wait_for(
+                orch.run(
+                    body.message,
+                    conversation_id=conversation_id,
+                    mode=mode,
+                    event_sink=event_sink,
+                ),
+                timeout=22,
             )
             session.add(
                 Message(
@@ -354,6 +357,37 @@ async def chat_stream(
                         "llm_live": get_settings().llm_backend != "mock",
                         "suggestions": list(result.suggestions or []),
                         "approval_id": result.approval_id or "",
+                    },
+                }
+            )
+        except asyncio.TimeoutError:
+            await queue.put(
+                {
+                    "event": "final",
+                    "data": {
+                        "answer": (
+                            "That took too long. Try asking for a product search, "
+                            "the return policy, or your recent orders."
+                        ),
+                        "conversation_id": conversation_id,
+                        "trace_id": "",
+                        "run_id": "",
+                        "mode": mode,
+                        "entry_agent": "supervisor",
+                        "terminal_state": "partial",
+                        "steps": 0,
+                        "trajectory": [],
+                        "sub_results": [],
+                        "citations": [],
+                        "framework": "langgraph",
+                        "latency_ms": 22000,
+                        "persona": body.persona,
+                        "suggestions": [
+                            "Search for iPhone and give me the prices",
+                            "What is the return policy?",
+                            "Show my recent orders",
+                        ],
+                        "approval_id": "",
                     },
                 }
             )

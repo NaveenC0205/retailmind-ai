@@ -75,16 +75,8 @@ async def _emit(sink: Optional[EventSink], payload: dict) -> None:
 
 
 def _use_langchain_react(orch, agent_name: str = "") -> bool:
-    """ReAct on write-heavy specialists only. Catalogue browse stays on the
-    native loop so guest 'search iPhone prices' cannot hang on Vercel."""
-    s = get_settings()
-    if s.llm_provider == "mock" or s.cassette_mode == "replay":
-        return False
-    if agent_name in {"shopping", "product", "recommendation", "policy"}:
-        return False
-    if s.llm_provider in ("openai", "openai-compat", "groq", "gemini") and s.openai_api_key:
-        return True
-    return bool(s.openai_api_key and s.llm_backend in ("openai", "groq", "gemini"))
+    """Live ReAct hangs shop chat on Vercel. Native/mock loop stays eval-safe."""
+    return False
 
 
 def _build_langchain_tools(orch, tool_names: tuple[str, ...]):
