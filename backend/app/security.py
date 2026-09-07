@@ -40,7 +40,7 @@ CUSTOMER_SCOPES = frozenset(
 # missing scope is refused by the gateway rather than argued about by the model.
 GUEST_SCOPES = frozenset({"products:read", "kb:read", "promotions:read"})
 
-OPERATOR_SCOPES = CUSTOMER_SCOPES | {"approvals:write", "eval:write", "eval:read"}
+OPERATOR_SCOPES = CUSTOMER_SCOPES | {"approvals:write", "eval:write", "eval:read", "products:write"}
 
 
 @dataclass(frozen=True)

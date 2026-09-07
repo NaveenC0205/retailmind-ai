@@ -702,8 +702,11 @@ async def get_customer_orders(
     principal: Principal = Depends(require_principal),
     session=Depends(get_session),
 ):
-    if principal.customer_id and principal.customer_id != customer_id:
-        raise HTTPException(403, "cannot view other customer's orders")
+    if principal.kind != "operator":
+        if not principal.customer_id:
+            raise HTTPException(401, "sign in to view orders")
+        if principal.customer_id != customer_id:
+            raise HTTPException(403, "cannot view other customer's orders")
     
     rows = (
         await session.execute(
@@ -739,7 +742,9 @@ async def get_order(
     if not order:
         raise HTTPException(404, "order not found")
     if principal.kind != "operator":
-        if principal.customer_id and principal.customer_id != order.customer_id:
+        if not principal.customer_id:
+            raise HTTPException(401, "sign in to view orders")
+        if principal.customer_id != order.customer_id:
             raise HTTPException(403, "cannot view other customer's order")
 
     items = []
@@ -904,6 +909,7 @@ async def create_order(
 async def admin_list_orders(
     status: Optional[str] = None,
     limit: int = Query(default=100, le=500),
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     query = select(Order).order_by(desc(Order.placed_at)).limit(limit)
@@ -937,6 +943,7 @@ class OrderStatusUpdate(BaseModel):
 async def update_order_status(
     order_id: str,
     body: OrderStatusUpdate,
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     order = await session.get(Order, order_id)
@@ -954,7 +961,11 @@ async def update_order_status(
 
 
 @router.post("/api/admin/orders/{order_id}/cancel", tags=["admin"])
-async def cancel_order(order_id: str, session=Depends(get_session)):
+async def cancel_order(
+    order_id: str,
+    principal: Principal = Depends(require_operator),
+    session=Depends(get_session),
+):
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(404, "order not found")
@@ -972,6 +983,7 @@ async def cancel_order(order_id: str, session=Depends(get_session)):
 @router.get("/api/admin/inventory", tags=["admin"])
 async def admin_list_inventory(
     warehouse: Optional[str] = None,
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     query = select(Inventory, Product).join(Product, Inventory.product_id == Product.id)
@@ -1005,6 +1017,7 @@ async def update_inventory(
     product_id: str,
     body: InventoryUpdate,
     warehouse: str = "BLR-1",
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     inv = (
@@ -1060,6 +1073,7 @@ class UpdateProductRequest(BaseModel):
 async def admin_list_products(
     category: Optional[str] = None,
     limit: int = Query(default=100, le=500),
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     query = select(Product).limit(limit)
@@ -1088,6 +1102,7 @@ async def admin_list_products(
 @router.post("/api/admin/products", tags=["admin"])
 async def create_product(
     body: CreateProductRequest,
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     existing = (
@@ -1131,6 +1146,7 @@ async def create_product(
 async def update_product(
     product_id: str,
     body: UpdateProductRequest,
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     product = await session.get(Product, product_id)
@@ -1165,6 +1181,7 @@ async def update_product(
 @router.delete("/api/admin/products/{product_id}", tags=["admin"])
 async def delete_product(
     product_id: str,
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     product = await session.get(Product, product_id)
@@ -1201,6 +1218,7 @@ class BulkUploadRequest(BaseModel):
 @router.post("/api/admin/products/bulk", tags=["admin"])
 async def bulk_upload_products(
     body: BulkUploadRequest,
+    principal: Principal = Depends(require_operator),
     session=Depends(get_session),
 ):
     created = 0

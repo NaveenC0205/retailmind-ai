@@ -1094,7 +1094,11 @@ class Orchestrator:
         from app.llm.mock import extract_order_id
 
         low = (text or "").lower()
-        looks = intent == "admin_ops" or any(
+        want_add = bool(
+            _re.search(r"\b(add|create|register)\b.{0,24}\bproducts?\b", low)
+            or "new product" in low
+        )
+        looks = want_add or intent == "admin_ops" or any(
             k in low
             for k in (
                 "pending order", "approve", "reject", "low stock", "restock",
@@ -1103,6 +1107,9 @@ class Orchestrator:
         )
         if not looks:
             return None
+
+        if want_add:
+            return await self._guided_add_product(text, low, facts, event_sink)
 
         await self._notify(
             event_sink,
@@ -1195,6 +1202,94 @@ class Orchestrator:
             SubResult(
                 agent="admin",
                 task="seller ops",
+                summary=answer,
+                steps=max(self.steps, 1),
+                tools=tools_used,
+                terminal_state=TerminalState.COMPLETED.value,
+            ).__dict__
+        ]
+        return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
+
+    async def _guided_add_product(self, text: str, low: str, facts: dict, event_sink=None):
+        """Owner adds a catalogue product from chat. Deterministic: parse the
+        details, create it, or ask once for what's missing — never loop."""
+        import re as _re
+
+        await self._notify(
+            event_sink,
+            {"type": "agent_start", "agent": "admin", "task": "add product", "framework": "owner-ops"},
+        )
+
+        title = ""
+        m = _re.search(r"[\"“']([^\"”']{2,80})[\"”']", text or "")
+        if m:
+            title = m.group(1).strip()
+        else:
+            m = _re.search(r"\b(?:called|named|titled)\s+([A-Za-z0-9][\w\s+.-]{1,60}?)(?=\s+(?:price|for|at|category|brand|stock|qty)\b|$)", text or "", _re.I)
+            if m:
+                title = m.group(1).strip()
+
+        price = 0
+        m = _re.search(r"(?:price|priced|for|at|@|₹|rs\.?|inr)\s*([0-9][0-9,]{1,8})", low)
+        if m:
+            price = int(m.group(1).replace(",", ""))
+
+        category = next(
+            (c for c in ("laptops", "laptop", "phones", "phone", "audio", "monitors", "monitor", "accessories", "accessory") if c in low),
+            "",
+        )
+        category = {"laptop": "laptops", "phone": "phones", "monitor": "monitors", "accessory": "accessories"}.get(category, category)
+
+        m = _re.search(r"\bbrand\s+([A-Za-z0-9][\w-]{0,24})", text or "", _re.I)
+        brand = m.group(1) if m else ""
+        m = _re.search(r"\b(?:stock|qty|quantity|units?)\s+(\d{1,6})", low)
+        stock = int(m.group(1)) if m else 0
+
+        tools_used: list[str] = []
+        if title and price > 0:
+            args = {"title": title, "price_inr": price, "initial_stock": stock}
+            if category:
+                args["category"] = category
+            if brand:
+                args["brand"] = brand
+            res = await self.gateway.call("add_product", args)
+            tools_used.append("add_product")
+            if res.ok:
+                d = res.data
+                answer = (
+                    f"{d.get('message')}\n"
+                    f"• id: {d.get('product_id')} · SKU {d.get('sku')}\n"
+                    f"• category: {d.get('category')} · brand: {d.get('brand')}\n"
+                    f"• opening stock: {d.get('initial_stock')} (say \"add stock for {d.get('product_id')}\" or use the dashboard to change it)"
+                )
+            else:
+                answer = res.denial_reason or "I couldn't add that product. Check the SKU isn't already used."
+        else:
+            missing = []
+            if not title:
+                missing.append('a title (put it in quotes, e.g. "Pixel Buds 3")')
+            if price <= 0:
+                missing.append("a price in INR (e.g. price 12999)")
+            answer = (
+                "I can add that product — I just need " + " and ".join(missing) + ".\n"
+                'Example: add new product "Pixel Buds 3" price 12999 category audio brand Google stock 50'
+            )
+
+        facts["intent"] = "admin_ops"
+        await self._notify(
+            event_sink,
+            {
+                "type": "agent_done",
+                "agent": "admin",
+                "summary": answer[:400],
+                "terminal_state": TerminalState.COMPLETED.value,
+                "framework": "owner-ops",
+            },
+        )
+        sub = [
+            SubResult(
+                agent="admin",
+                task="add product",
                 summary=answer,
                 steps=max(self.steps, 1),
                 tools=tools_used,

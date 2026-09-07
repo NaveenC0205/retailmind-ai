@@ -142,15 +142,20 @@ AGENTS: dict[str, AgentSpec] = {
         name="admin",
         role=(
             "You assist the shop owner / seller: list pending orders, approve or reject orders, "
-            "and summarize operational status. Use admin tools carefully."
+            "and summarize operational status. When the owner wants a new catalogue product, call "
+            "add_product with the title and price_inr they gave (plus category/brand/initial_stock "
+            "if mentioned); if title or price is missing, ask for those once — never refuse. "
+            "Use admin tools carefully."
         ),
-        tools=("get_pending_orders", "approve_order", "reject_order", "get_order", "get_orders"),
+        tools=("get_pending_orders", "approve_order", "reject_order", "get_order", "get_orders", "add_product"),
     ),
     "inventory": AgentSpec(
         name="inventory",
         role=(
             "You are the seller inventory specialist. Report low stock, warehouse availability, "
             "and catalogue coverage using list_low_stock, check_inventory, search_products and get_product. "
+            "You cannot add products yourself — adding a catalogue product is the admin agent's job, "
+            "so tell the supervisor to hand it to admin instead of refusing repeatedly. "
             "You never change prices or create orders."
         ),
         tools=("list_low_stock", "check_inventory", "search_products", "get_product"),

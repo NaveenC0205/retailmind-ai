@@ -184,6 +184,61 @@ async def test_owner_agent_lists_pending_and_low_stock(client):
     assert "stock" in stock["answer"].lower() or "sku" in stock["answer"].lower()
 
 
+async def test_owner_adds_a_product_from_chat(client):
+    body = (await client.post(
+        "/api/chat",
+        json={
+            "message": 'Add new product "Pixel Buds Demo" price 12999 category audio brand Google stock 50',
+            "mode": "multi_agent",
+            "persona": "owner",
+        },
+        headers=OPERATOR,
+    )).json()
+    assert "pixel buds demo" in body["answer"].lower()
+    assert "12,999" in body["answer"] or "12999" in body["answer"]
+    assert "cannot assist" not in body["answer"].lower()
+
+    listing = (await client.post(
+        "/api/chat",
+        json={"message": "search for Pixel Buds Demo", "mode": "multi_agent"},
+    )).json()
+    assert "pixel buds demo" in listing["answer"].lower()
+
+
+async def test_owner_add_product_without_details_asks_once(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "add new product", "mode": "multi_agent", "persona": "owner"},
+        headers=OPERATOR,
+    )).json()
+    low = body["answer"].lower()
+    assert "cannot assist" not in low
+    assert "title" in low and "price" in low
+    # One ask, not the same refusal repeated by a looping supervisor.
+    assert low.count("i can add that product") <= 1
+
+
+async def test_guests_cannot_read_order_history_over_rest(client):
+    r = await client.get("/api/customers/CU-1001/orders")
+    assert r.status_code == 401
+    r = await client.get("/api/orders/OR-20001")
+    assert r.status_code == 401
+    r = await client.get("/api/customers/CU-1001/orders", headers=PRIYA)
+    assert r.status_code == 403
+    r = await client.get("/api/customers/CU-1001/orders", headers=NAVEEN)
+    assert r.status_code == 200
+
+
+async def test_admin_rest_requires_an_operator(client):
+    assert (await client.get("/api/admin/orders")).status_code == 403
+    assert (await client.get("/api/admin/orders", headers=NAVEEN)).status_code == 403
+    assert (await client.post(
+        "/api/admin/products",
+        json={"sku": "X-1", "title": "X", "brand": "X", "category": "audio", "price_inr": 1},
+    )).status_code == 403
+    assert (await client.get("/api/admin/orders", headers=OPERATOR)).status_code == 200
+
+
 async def test_owner_persona_is_not_available_to_guests(client):
     body = (await client.post(
         "/api/chat",

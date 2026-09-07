@@ -149,6 +149,17 @@ class LowStockIn(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
 
 
+class AddProductIn(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    price_inr: int = Field(ge=1)
+    category: str = Field(default="accessories")
+    brand: str = Field(default="ShopZone")
+    sku: str = Field(default="")
+    description: str = Field(default="")
+    initial_stock: int = Field(default=0, ge=0, le=100000)
+    attributes: Optional[dict] = None
+
+
 # ----------------------------------------------------------------------
 # contract
 # ----------------------------------------------------------------------

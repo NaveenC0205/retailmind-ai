@@ -66,6 +66,25 @@ class LangGraphTeamResult:
     events: list[dict] = field(default_factory=list)
 
 
+MAX_SUPERVISOR_HOPS = 8
+MAX_DELEGATIONS_PER_AGENT = 2
+
+
+def _join_summaries(sub_results: list) -> str:
+    """Compose a final answer from specialist summaries without repeating the
+    same text when an agent was delegated to more than once."""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for s in sub_results:
+        summary = (s["summary"] if isinstance(s, dict) else getattr(s, "summary", "")) or ""
+        key = summary.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        parts.append(summary.strip())
+    return " ".join(parts)
+
+
 async def _emit(sink: Optional[EventSink], payload: dict) -> None:
     if not sink:
         return
@@ -203,14 +222,12 @@ def build_jewellery_team_graph(
         stop = orch.budget.exceeded(
             orch.steps, orch.router.total_tokens_in + orch.router.total_tokens_out
         )
-        if stop:
+        if stop or hop > MAX_SUPERVISOR_HOPS:
             await _emit(event_sink, {"type": "budget", "message": "Budget exceeded"})
             return {
                 "next_agent": "FINISH",
                 "terminal": TerminalState.BUDGET_EXCEEDED.value,
-                "answer": " ".join(
-                    (s["summary"] if isinstance(s, dict) else s.summary) for s in sub_results
-                )
+                "answer": _join_summaries(sub_results)
                 or "I couldn't finish every part of that request.",
                 "hop": hop,
                 "framework": "langgraph",
@@ -250,6 +267,17 @@ def build_jewellery_team_graph(
         )
 
         if action.type == "delegate" and action.agent in allowed:
+            # A specialist that was already consulted twice for this request has
+            # nothing new to add: finish with what we have instead of ping-ponging.
+            if delegated.count(action.agent) >= MAX_DELEGATIONS_PER_AGENT:
+                return {
+                    "next_agent": "FINISH",
+                    "answer": _join_summaries(sub_results)
+                    or "I couldn't finish every part of that request.",
+                    "terminal": TerminalState.PARTIAL.value,
+                    "hop": hop,
+                    "framework": "langgraph",
+                }
             return {
                 "next_agent": action.agent,
                 "task": action.task or user_text,
@@ -258,10 +286,7 @@ def build_jewellery_team_graph(
             }
 
         if action.is_terminal():
-            answer = action.content or " ".join(
-                (s["summary"] if isinstance(s, dict) else getattr(s, "summary", ""))
-                for s in sub_results
-            )
+            answer = action.content or _join_summaries(sub_results)
             term = {
                 "answer": TerminalState.COMPLETED,
                 "refuse": TerminalState.REFUSED,
@@ -277,10 +302,7 @@ def build_jewellery_team_graph(
 
         return {
             "next_agent": "FINISH",
-            "answer": " ".join(
-                (s["summary"] if isinstance(s, dict) else getattr(s, "summary", ""))
-                for s in sub_results
-            )
+            "answer": _join_summaries(sub_results)
             or "I couldn't finish every part of that request.",
             "terminal": TerminalState.PARTIAL.value,
             "hop": hop,
@@ -466,7 +488,7 @@ async def run_langgraph_team(
                 )
             )
 
-    answer = final.get("answer") or " ".join(s.summary for s in sub_results) or (
+    answer = final.get("answer") or _join_summaries(sub_results) or (
         "I couldn't finish every part of that request."
     )
     term_raw = final.get("terminal") or TerminalState.COMPLETED.value

@@ -31,6 +31,7 @@ from app.models import (
     new_id,
 )
 from app.tools.contracts import (
+    AddProductIn,
     ApproveOrderIn,
     CancelOrderIn,
     CompareProductsIn,
@@ -93,6 +94,12 @@ async def own_order(session, principal, args: dict) -> Optional[str]:
 
 async def own_customer_arg(session, principal, args: dict) -> Optional[str]:
     return args.get("customer_id")
+
+
+async def own_shop_catalogue(session, principal, args: dict) -> Optional[str]:
+    """The catalogue belongs to the shop, not to any customer. Only an
+    operator passes owns_customer for this sentinel owner."""
+    return "shop-catalogue"
 
 
 async def own_shipment(session, principal, args: dict) -> Optional[str]:
@@ -877,6 +884,57 @@ async def list_low_stock(session, principal, args: dict) -> dict:
     return {"threshold": threshold, "count": len(items), "items": items}
 
 
+async def add_product(session, principal, args: dict) -> dict:
+    """Seller-only: create a catalogue product with an inventory row."""
+    if principal.kind != "operator":
+        raise ToolFailure("forbidden", "Only the shop owner can add products.")
+    title = str(args.get("title") or "").strip()
+    price = int(args.get("price_inr") or 0)
+    if not title or price <= 0:
+        raise ToolFailure("invalid_input", "A product needs at least a title and a price in INR.")
+    category = str(args.get("category") or "accessories").strip().lower()
+    if category not in ("laptops", "phones", "audio", "monitors", "accessories"):
+        category = "accessories"
+    sku = str(args.get("sku") or "").strip().upper() or f"SKU-{new_id('X')[-8:].upper()}"
+    existing = (
+        await session.execute(select(Product).where(Product.sku == sku))
+    ).scalar_one_or_none()
+    if existing:
+        raise ToolFailure("invalid_input", f"A product with SKU {sku} already exists ({existing.id}).")
+    product = Product(
+        id=new_id("PR"),
+        sku=sku,
+        title=title,
+        brand=str(args.get("brand") or "ShopZone").strip() or "ShopZone",
+        category=category,
+        price_inr=price,
+        rating=0.0,
+        description_raw=str(args.get("description") or ""),
+        attributes=args.get("attributes") or {},
+    )
+    session.add(product)
+    session.add(
+        Inventory(
+            product_id=product.id,
+            warehouse="BLR-1",
+            qty_available=int(args.get("initial_stock") or 0),
+            qty_reserved=0,
+        )
+    )
+    await session.commit()
+    return {
+        "created": True,
+        "product_id": product.id,
+        "sku": product.sku,
+        "title": product.title,
+        "brand": product.brand,
+        "category": product.category,
+        "price_inr": product.price_inr,
+        "initial_stock": int(args.get("initial_stock") or 0),
+        "message": f"Added {product.title} ({product.id}) to the catalogue at ₹{price:,}.",
+    }
+
+
 # ======================================================================
 # registration
 # ======================================================================
@@ -929,6 +987,7 @@ def _register_all() -> None:
     R(ToolContract("approve_order", "Approve an order and move it to packed status (admin only).", ApproveOrderIn, ("orders:write",), approve_order, side_effects=True, cost_class="write_financial", ownership=own_order))
     R(ToolContract("reject_order", "Reject/cancel an order with a reason (admin only).", RejectOrderIn, ("orders:write",), reject_order, side_effects=True, cost_class="write_financial", ownership=own_order))
     R(ToolContract("list_low_stock", "List catalogue products whose available warehouse stock is at or below a threshold. Seller inventory specialist.", LowStockIn, ("products:read",), list_low_stock))
+    R(ToolContract("add_product", "Add a new product to the catalogue (shop owner only). Requires title and price_inr; optional category (laptops/phones/audio/monitors/accessories), brand, sku, description, initial_stock.", AddProductIn, ("products:write",), add_product, side_effects=True, cost_class="write_financial", ownership=own_shop_catalogue))
 
 
 _register_all()
