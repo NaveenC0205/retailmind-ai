@@ -13,6 +13,30 @@ from app.config import get_settings
 from app.llm.base import Completion, CompletionRequest, LLMError, LLMTimeout
 
 
+def uses_max_completion_tokens(model: str) -> bool:
+    """GPT-5 / o-series reject max_tokens and often reject temperature."""
+    m = (model or "").lower()
+    return m.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
+def openai_chat_payload(model: str, req: CompletionRequest) -> dict:
+    messages = []
+    if req.system:
+        messages.append({"role": "system", "content": req.system})
+    messages.append({"role": "user", "content": req.prompt})
+    payload: dict = {"model": model, "messages": messages}
+    tokens = max(int(req.max_tokens or 900), 1)
+    if uses_max_completion_tokens(model):
+        # Reasoning tokens share this budget; keep a floor so the visible reply is not empty.
+        payload["max_completion_tokens"] = max(tokens, 1600)
+    else:
+        payload["temperature"] = req.temperature
+        payload["max_tokens"] = tokens
+    if req.purpose in ("agent_step", "judge", "memory_extract"):
+        payload["response_format"] = {"type": "json_object"}
+    return payload
+
+
 class OllamaLLM:
     """Local models via http://localhost:11434.
 
@@ -90,18 +114,7 @@ class OpenAICompatLLM:
         if not self.api_key:
             raise LLMError("openai_api_key is not set")
         started = time.perf_counter()
-        messages = []
-        if req.system:
-            messages.append({"role": "system", "content": req.system})
-        messages.append({"role": "user", "content": req.prompt})
-        payload: dict = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": req.temperature,
-            "max_tokens": req.max_tokens,
-        }
-        if req.purpose in ("agent_step", "judge", "memory_extract"):
-            payload["response_format"] = {"type": "json_object"}
+        payload: dict = openai_chat_payload(self.model, req)
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 r = await client.post(

@@ -70,7 +70,7 @@ class Settings(BaseSettings):
 
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.4"
 
     # Free hosted models — paste the key in Vercel; no code change needed.
     groq_api_key: str = ""
@@ -183,7 +183,7 @@ def bind_hosted_llm(s: Settings) -> Settings:
     if can_promote and openai_key and provider not in {"ollama"}:
         backend = "groq" if "groq.com" in base else "openai"
         model = s.openai_model if s.openai_model not in {"mock-1", ""} else (
-            s.groq_model if backend == "groq" else "gpt-4o-mini"
+            s.groq_model if backend == "groq" else "gpt-5.4"
         )
         url = s.openai_base_url
         if backend == "groq" and "groq.com" not in url.lower():

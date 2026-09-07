@@ -1462,7 +1462,7 @@ async def check_regression(
 
 class BenchmarkRequest(BaseModel):
     dataset: str = "benchmark/model_comparison"
-    models: list[str] = Field(default=["openai:gpt-4o-mini"])
+    models: list[str] = Field(default=["openai:gpt-5.4"])
     concurrency: int = Field(default=2, ge=1, le=8)
 
 

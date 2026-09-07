@@ -143,13 +143,19 @@ def _build_langchain_tools(orch, tool_names: tuple[str, ...]):
 def _chat_openai():
     from langchain_openai import ChatOpenAI
 
+    from app.llm.providers import uses_max_completion_tokens
+
     s = get_settings()
-    return ChatOpenAI(
-        model=s.openai_model,
-        api_key=s.openai_api_key or "sk-missing",
-        base_url=s.openai_base_url,
-        temperature=s.llm_temperature,
-    )
+    kwargs: dict = {
+        "model": s.openai_model,
+        "api_key": s.openai_api_key or "sk-missing",
+        "base_url": s.openai_base_url,
+    }
+    if uses_max_completion_tokens(s.openai_model):
+        kwargs["model_kwargs"] = {"max_completion_tokens": max(int(s.llm_max_tokens or 900), 1600)}
+    else:
+        kwargs["temperature"] = s.llm_temperature
+    return ChatOpenAI(**kwargs)
 
 
 async def _run_specialist_langchain(orch, agent_name: str, task: str, user_text: str) -> tuple[str, TerminalState, str]:
