@@ -22,6 +22,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Vercel serverless: only /tmp is writable between requests on the same instance.
+_ON_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+_DEFAULT_VAR = Path("/tmp/retailmind") if _ON_VERCEL else (REPO_ROOT / "var")
+_DEFAULT_DB = (
+    "sqlite+aiosqlite:////tmp/retailmind.db"
+    if _ON_VERCEL
+    else f"sqlite+aiosqlite:///{REPO_ROOT / 'var' / 'retailmind.db'}"
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -36,7 +45,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # --- storage -------------------------------------------------------
-    database_url: str = f"sqlite+aiosqlite:///{REPO_ROOT / 'var' / 'retailmind.db'}"
+    database_url: str = _DEFAULT_DB
 
     # --- llm -----------------------------------------------------------
     # mock    : deterministic, offline, zero cost. Used by CI.
@@ -98,7 +107,7 @@ class Settings(BaseSettings):
     prompts_dir: Path = REPO_ROOT / "prompts"
     datasets_dir: Path = REPO_ROOT / "datasets"
     static_dir: Path = REPO_ROOT / "backend" / "static"
-    var_dir: Path = REPO_ROOT / "var"
+    var_dir: Path = _DEFAULT_VAR
 
     @property
     def is_sqlite(self) -> bool:
