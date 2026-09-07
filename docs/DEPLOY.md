@@ -20,9 +20,19 @@ real model behind it is one environment variable and is covered below.
 | **Fly.io** | free allowance | yes | ~2s with scale-to-zero | you already use Fly |
 | **Cloudflare Tunnel** | free | no | none — your Mac serves it | showing someone *right now* |
 
-For an AI-engineering portfolio, **Hugging Face Spaces** is the one I would
-choose: permanent URL, no card, and the audience you care about already knows
-the domain.
+# Role: Customer vs Shop Owner
+
+Demo accounts (seeded):
+
+| Role | Email | Password | Lands on |
+|------|-------|----------|----------|
+| **Customer** | `customer@shopzone.in` | `customer123` | Shop home |
+| **Shop Owner** | `owner@shopzone.in` | `owner123` | Admin panel |
+
+Login page: `/shop/login.html` with **Customer Login** / **Shop Owner Login** tabs.
+
+Extra customers use password `demo123` (e.g. `priya@example.in`).
+
 
 ---
 
