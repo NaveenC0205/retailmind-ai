@@ -37,6 +37,9 @@ class Settings(BaseSettings):
         env_file=os.environ.get("RETAILMIND_ENV_FILE", str(REPO_ROOT / ".env")),
         env_file_encoding="utf-8",
         extra="ignore",
+        # Vercel injects empty strings for unset dashboard env vars; treat those
+        # as missing so field defaults apply (otherwise bool/int/float parse fail).
+        env_ignore_empty=True,
     )
 
     # --- runtime -------------------------------------------------------
