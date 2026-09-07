@@ -72,9 +72,9 @@ def classify_mode(user_text: str, requested: str = "auto") -> tuple[str, str]:
     if any(k in text for k in ("pending order", "approve order", "reject order", "shop owner", "seller", "restock", "low stock", "inventory")):
         intent = "admin_ops"
     if any(k in text for k in (
-        "place order", "buy now", "checkout", "create order", "want to buy",
-        "buy this", "buy the", "purchase this", "pay with", "payment method",
-        "payment option", "how do i pay", "cash on delivery",
+        "place order", "place an order", "buy now", "checkout", "create order", "want to buy",
+        "i want to order", "buy this", "buy the", "purchase this", "pay with", "payment method",
+        "payment option", "how do i pay", "cash on delivery", "order now",
     )):
         intent = "checkout_help"
     if any(k in text for k in ("return policy", "warranty", "shipping policy", "exchange policy")):
@@ -114,6 +114,8 @@ def absorb(facts: dict, tool: str, data: dict) -> dict:
         products = data.get("products") or []
         facts["candidate_product_ids"] = [p["product_id"] for p in products]
         facts["candidate_titles"] = [p["title"] for p in products]
+        facts["candidate_prices"] = [p.get("price_inr") for p in products]
+        facts["candidates"] = products
         if products:
             facts.setdefault("product_id", products[0]["product_id"])
     elif tool in ("get_product",):
@@ -275,25 +277,36 @@ class Orchestrator:
                 )
 
             clean_text = inbound.text
-            resolved_mode, intent = classify_mode(clean_text, mode)
+            from app.nlp.understand import understand
+
+            parsed = understand(clean_text)
+            route_text = parsed.rewritten or clean_text
+            resolved_mode, intent = classify_mode(route_text, mode)
 
             with span("conversation.route", mode=resolved_mode, intent=intent, persona=self.persona):
                 facts = await self.memory.facts_dict()
             facts["persona"] = self.persona
+            facts["understood_query"] = route_text
+            facts["original_query"] = inbound.text
+            facts["intent"] = intent
+            if parsed.changed:
+                facts["query_rewritten"] = True
             if self.product_id:
                 facts["product_id"] = self.product_id
                 if "[Product context" not in clean_text:
                     clean_text = f"[Product context id={self.product_id}] {clean_text}"
+                    route_text = f"[Product context id={self.product_id}] {route_text}"
             if self.persona == "owner" and "[Shop owner" not in clean_text:
                 clean_text = f"[Shop owner dashboard] {clean_text}"
+                route_text = f"[Shop owner dashboard] {route_text}"
             facts = await self._prime_customer(facts)
-            facts = await self._prime_rag(clean_text, facts)
+            facts = await self._prime_rag(route_text, facts)
 
             # Shop chat always asks for multi_agent; still run dedicated RAG
             # when the question is a policy lookup so answers stay cited.
             if resolved_mode == "multi_agent" and intent == "policy" and self.persona != "owner":
                 rag_answer, rag_term, _, citations, rag_facts, _ = await self._run_rag(
-                    clean_text, facts, intent
+                    route_text, facts, intent
                 )
                 facts = rag_facts
                 # Continue multi-agent so shopping+policy compound questions
@@ -322,16 +335,23 @@ class Orchestrator:
                     )
 
             # 2 -- dispatch
-            if resolved_mode == "chat":
+            # The storefront always sends multi_agent. Greetings and open chat
+            # should talk like a real assistant, not spin a specialist graph.
+            if intent == "smalltalk" and self.persona != "owner":
+                result = await self._run_chat(clean_text, facts)
+            elif resolved_mode == "chat":
                 result = await self._run_chat(clean_text, facts)
             elif resolved_mode == "rag":
-                result = await self._run_rag(clean_text, facts, intent)
+                result = await self._run_rag(route_text, facts, intent)
             elif resolved_mode == "multi_agent":
-                result = await self._run_multi(clean_text, facts, intent, event_sink=event_sink)
+                result = await self._run_multi(route_text, facts, intent, event_sink=event_sink)
             else:
-                result = await self._run_single(clean_text, facts, intent)
+                result = await self._run_single(route_text, facts, intent)
 
             answer, terminal, sub_results, citations, out_facts, approval_id = result
+            out_facts = out_facts or {}
+            out_facts.setdefault("intent", intent)
+            out_facts.setdefault("logged_in", facts.get("logged_in"))
 
             # 3 -- output guardrails
             out_ctx = {
@@ -375,6 +395,17 @@ class Orchestrator:
     async def _run_chat(self, text: str, facts: dict):
         context = Context()
         context.add(Provenance.SYSTEM, get_prompt("chat_system", self.prompt_version))
+        context.add(
+            Provenance.SYSTEM,
+            "The shopper may misspell, skip letters, or mix Hindi/English. "
+            "Infer what they meant and reply naturally, like ChatGPT — not a keyword bot. "
+            "If they asked about products, offer to search the catalogue.",
+        )
+        if facts.get("understood_query") and facts.get("query_rewritten"):
+            context.add(
+                Provenance.SYSTEM,
+                f"Normalized reading of their message: {facts['understood_query']}",
+            )
         await self.memory.as_fragments(context)
         context.add(Provenance.USER, text)
         completion = await self.router.complete(
@@ -382,7 +413,7 @@ class Orchestrator:
                 prompt=context.render(),
                 system=get_prompt("chat_system", self.prompt_version),
                 purpose="chat",
-                meta={"user_text": text},
+                meta={"user_text": text, "facts": facts},
             )
         )
         self.steps += 1
@@ -481,13 +512,436 @@ class Orchestrator:
         answer, terminal, facts, approval_id = await self._agent_loop(spec, text, text, facts, intent)
         return answer, terminal, [], facts.get("citation_ids", []), facts, approval_id
 
+    def _is_catalogue_browse(self, text: str, intent: str) -> bool:
+        """Guest/customer browse questions should hit search_products, not a live ReAct hang."""
+        if self.persona == "owner":
+            return False
+        from app.llm.mock import wants_comparison
+
+        if wants_comparison(text):
+            return False
+        low = (text or "").lower()
+        if any(
+            k in low
+            for k in (
+                "my order",
+                "place order",
+                "buy now",
+                "buy this",
+                "checkout",
+                "create order",
+                "refund",
+                "cancel my",
+                "approve",
+                "reject",
+                "return this",
+                "payment method",
+                "how do i pay",
+            )
+        ):
+            return False
+        if intent in {
+            "order_delay_refund",
+            "return_item",
+            "cancel_order",
+            "refund_status",
+            "order_status",
+            "order_list",
+            "checkout_help",
+            "admin_ops",
+            "policy",
+        }:
+            return False
+        if intent in {"shopping", "gift_advice", "shopping_complex", "promotion"}:
+            return True
+        return any(
+            k in low
+            for k in (
+                "search",
+                "price",
+                "find me",
+                "show me",
+                "looking for",
+                "dikhao",
+            )
+        )
+
+    def _format_catalogue_answer(self, products: list, facts: dict, text: str) -> str:
+        understood = (facts.get("understood_query") or text or "").strip()
+        lead = "Here’s what I found in the ShopZone catalogue"
+        if facts.get("query_rewritten") and understood:
+            lead = f"I read that as “{understood}”. {lead}"
+        if not products:
+            return (
+                f"{lead}, but nothing matched closely. "
+                "Try a brand or category such as iPhone, Galaxy, MacBook, or headphones — "
+                "typos are fine."
+            )
+        lines = [f"{lead}:"]
+        for p in products:
+            price = int(p.get("price_inr") or 0)
+            rating = p.get("rating")
+            brand = p.get("brand") or ""
+            lines.append(f"• {p.get('title')} ({brand}) — ₹{price:,} · rating {rating}")
+        if not facts.get("logged_in"):
+            lines.append(
+                "\nWant one of these? Sign in and tell me UPI, Card, or Cash on delivery and I’ll place it."
+            )
+        else:
+            lines.append("\nTell me which one to order and how you’d like to pay (UPI, Card, or COD).")
+        return "\n".join(lines)
+
+    async def _compose_catalogue_reply(self, text: str, products: list, facts: dict) -> str:
+        """One ChatGPT-style completion grounded in catalogue rows. Falls back to a list."""
+        fallback = self._format_catalogue_answer(products, facts, text)
+        s = get_settings()
+        live = s.llm_provider != "mock" and bool(s.openai_api_key)
+        if not live or s.cassette_mode == "replay":
+            return fallback
+        catalog = "\n".join(
+            f"- {p.get('title')} | {p.get('brand')} | ₹{int(p.get('price_inr') or 0):,} | rating {p.get('rating')}"
+            for p in products
+        ) or "(no matching products)"
+        system = (
+            "You are ShopZone, a warm shopping assistant similar to ChatGPT. "
+            "The customer may misspell, skip letters, or mix Hindi, Hinglish, and English. "
+            "Infer what they meant. Answer naturally using ONLY the catalogue rows. "
+            "Never invent a price, product, or discount. Keep it under 160 words. "
+            "If they wrote in Hindi/Hinglish you may reply in the same mix. "
+            "End with one useful follow-up question."
+        )
+        prompt = (
+            f"Customer typed: {facts.get('original_query') or text}\n"
+            f"Normalized as: {facts.get('understood_query') or text}\n"
+            f"Logged in: {bool(facts.get('logged_in'))}\n"
+            f"Catalogue:\n{catalog}\n"
+        )
+        try:
+            from app.llm.base import CompletionRequest
+
+            completion = await self.router.complete(
+                CompletionRequest(
+                    prompt=prompt,
+                    system=system,
+                    purpose="chat",
+                    max_tokens=350,
+                    temperature=0.4,
+                    meta={"user_text": text, "facts": facts},
+                )
+            )
+            text_out = (completion.text or "").strip()
+            return text_out or fallback
+        except Exception:  # noqa: BLE001 — catalogue list is the safe fallback
+            return fallback
+
+    async def _notify(self, event_sink, payload: dict) -> None:
+        if not event_sink:
+            return
+        out = event_sink(payload)
+        if hasattr(out, "__await__"):
+            await out
+
+    async def _fast_catalogue_browse(self, text: str, facts: dict, intent: str, event_sink=None):
+        """Answer catalogue/price searches without LangGraph so guests get ₹ prices quickly."""
+        if not self._is_catalogue_browse(text, intent):
+            return None
+        from app.llm.mock import extract_budget_inr, extract_category
+
+        await self._notify(
+            event_sink,
+            {
+                "type": "agent_start",
+                "agent": "shopping",
+                "task": "catalogue browse",
+                "framework": "catalogue",
+            },
+        )
+        args: dict = {"query": text, "limit": 6}
+        category = extract_category(text)
+        if category:
+            args["category"] = category
+        budget = extract_budget_inr(text)
+        if budget:
+            args["max_price_inr"] = budget
+        result = await self.gateway.call("search_products", args)
+        if not result.ok:
+            await self._notify(
+                event_sink,
+                {
+                    "type": "agent_done",
+                    "agent": "shopping",
+                    "summary": result.denial_reason or "search failed",
+                    "terminal_state": TerminalState.PARTIAL.value,
+                    "framework": "catalogue",
+                },
+            )
+            return None
+        facts = absorb(facts, "search_products", result.data)
+        products = result.data.get("products") or []
+        answer = await self._compose_catalogue_reply(text, products, facts)
+        await self._notify(
+            event_sink,
+            {
+                "type": "agent_done",
+                "agent": "shopping",
+                "summary": answer[:400],
+                "terminal_state": TerminalState.COMPLETED.value,
+                "framework": "catalogue",
+            },
+        )
+        sub = [
+            SubResult(
+                agent="shopping",
+                task="catalogue browse",
+                summary=answer,
+                steps=max(self.steps, 1),
+                tools=["search_products"],
+                terminal_state=TerminalState.COMPLETED.value,
+            ).__dict__
+        ]
+        return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
+
+    def _followups(self, intent: str, facts: dict, answer: str) -> list[str]:
+        """Chips that continue this conversation, not a static help menu."""
+        if self.persona == "owner":
+            return ["List pending orders", "Which products need restock?", "Summarize today’s order queue"]
+        logged = bool(facts.get("logged_in"))
+        titles = [t for t in (facts.get("candidate_titles") or []) if t][:3]
+        pick = titles[0] if titles else ""
+        placed = bool(facts.get("order_id")) and "placed" in (answer or "").lower()
+        if placed:
+            return ["Show my recent orders", "What is the return policy?", "Track my latest order"]
+        if intent == "checkout_help" or facts.get("checkout_stage"):
+            stage = facts.get("checkout_stage") or ""
+            if not logged or stage == "need_login":
+                chips = ["Sign in to place an order", "What payment methods can I use?"]
+                if pick:
+                    chips.append(f"Search for {pick}")
+                else:
+                    chips.append("Search for iPhone and give me the prices")
+                return chips
+            if stage == "need_product" or (not facts.get("product_id") and not pick):
+                return ["Buy iPhone 15 with UPI", "Laptops under 80000", "Show my recent orders"]
+            if stage == "need_payment" or not facts.get("payment_method"):
+                name = pick or "this"
+                return [f"Pay for {name} with UPI", "Pay with Card", "Cash on delivery"]
+            return ["Show my recent orders", "What is the return policy?", "Add another item"]
+        if intent in {"shopping", "gift_advice", "shopping_complex"} and pick:
+            buy = f"Buy {pick} with UPI" if logged else "Sign in to place an order"
+            return [buy, f"What's the warranty on {pick}?", "Compare with similar products"]
+        if intent in {"order_status", "order_list"}:
+            return ["What payment was used on my latest order?", "Cancel my latest unshipped order", "What is the return policy?"]
+        if intent == "policy":
+            return ["Laptops under 80000", "Show my recent orders" if logged else "Sign in to place an order", "What payment methods can I use?"]
+        if logged:
+            return ["Show my recent orders", "Search for iPhone prices", "What payment methods can I use?"]
+        return ["Search for iPhone and give me the prices", "Laptops under 80000 with 16GB RAM", "Sign in to place an order"]
+
+    def _named_a_product(self, text: str) -> bool:
+        from app.llm.mock import extract_category
+
+        q = (text or "").lower()
+        if extract_category(q):
+            return True
+        return any(
+            w in q
+            for w in (
+                "iphone", "macbook", "galaxy", "pixel", "airpod", "laptop",
+                "headphone", "monitor", "redmi", "this item", "this product", "this one",
+            )
+        )
+
+    async def _title_from_history(self) -> str:
+        import re as _re
+
+        turns = await self._recent_turns(12)
+        for role, content in reversed(turns):
+            if role == "user" and self._named_a_product(content or ""):
+                return content.strip()
+        for role, content in reversed(turns):
+            if role not in {"assistant", "system"}:
+                continue
+            m = _re.search(r"•\s*([^(\n—\-]+)", content or "")
+            if m:
+                title = m.group(1).strip()
+                if 2 < len(title) < 80:
+                    return title
+        return ""
+
+    async def _guided_checkout(self, text: str, facts: dict, intent: str, event_sink=None):
+        """Checkout specialist without LangGraph: collect item + payment, then place."""
+        if self.persona == "owner":
+            return None
+        low = (text or "").lower()
+        looks = intent == "checkout_help" or any(
+            k in low
+            for k in (
+                "place order", "place an order", "buy now", "checkout",
+                "i want to buy", "i want to order", "pay with", "order now", "buy this",
+            )
+        )
+        if not looks:
+            return None
+        from app.llm.mock import extract_payment_method, extract_category
+
+        await self._notify(
+            event_sink,
+            {"type": "agent_start", "agent": "checkout", "task": "collect details and place order", "framework": "checkout"},
+        )
+        pay = extract_payment_method(text) or facts.get("payment_method")
+        if pay:
+            facts["payment_method"] = pay
+
+        pid = facts.get("product_id") or self.product_id or None
+        if pid:
+            facts["product_id"] = pid
+
+        search_q = text
+        for filler in (
+            "i want to place an order for", "i want to place order", "i want to buy",
+            "i want to order", "place an order for", "place an order", "place order",
+            "buy now", "checkout", "order now", "pay with upi", "pay with card",
+            "cash on delivery", "with upi", "with card", "please",
+        ):
+            search_q = search_q.replace(filler, " ")
+        search_q = " ".join(search_q.split())
+
+        products = list(facts.get("candidates") or [])
+        if not pid and (self._named_a_product(search_q) or self._named_a_product(text)):
+            args: dict = {"query": search_q or text, "limit": 5}
+            cat = extract_category(search_q or text)
+            if cat:
+                args["category"] = cat
+            result = await self.gateway.call("search_products", args)
+            if result.ok:
+                facts = absorb(facts, "search_products", result.data)
+                products = result.data.get("products") or []
+                if products:
+                    pid = products[0]["product_id"]
+                    facts["product_id"] = pid
+        if not pid:
+            hist = await self._title_from_history()
+            if hist:
+                result = await self.gateway.call("search_products", {"query": hist, "limit": 3})
+                if result.ok:
+                    facts = absorb(facts, "search_products", result.data)
+                    products = result.data.get("products") or products
+                    if products:
+                        pid = products[0]["product_id"]
+                        facts["product_id"] = pid
+
+        methods = await self.gateway.call("list_payment_methods", {})
+        if methods.ok:
+            facts = absorb(facts, "list_payment_methods", methods.data)
+        labels = ", ".join(
+            m.get("label") or m.get("id") for m in (facts.get("payment_methods") or [])
+        ) or "UPI, Card, Cash on delivery"
+
+        title = None
+        price = None
+        if pid:
+            got = await self.gateway.call("get_product", {"product_id": pid})
+            if got.ok:
+                title = got.data.get("title")
+                price = got.data.get("price_inr")
+                facts.setdefault("candidate_titles", [title] if title else [])
+        if not title and (facts.get("candidate_titles") or []):
+            title = facts["candidate_titles"][0]
+            prices = facts.get("candidate_prices") or []
+            price = prices[0] if prices else None
+
+        logged = bool(facts.get("logged_in")) and bool(self.principal.customer_id)
+
+        if not logged:
+            facts["checkout_stage"] = "need_login"
+            bits = ["I can place this for you — sign in first so the order goes on your account."]
+            if title:
+                bits.append(f"Item: {title}" + (f" — ₹{int(price):,}" if price else "") + ".")
+            elif products:
+                bits.append("Matches I can order after you sign in:")
+                for p in products[:4]:
+                    bits.append(f"• {p.get('title')} — ₹{int(p.get('price_inr') or 0):,}")
+            bits.append(f"Then tell me {labels}.")
+            answer = "\n".join(bits)
+        elif not pid:
+            facts["checkout_stage"] = "need_product"
+            answer = (
+                f"I can place an order. Which item should I buy? "
+                f"Name a product (iPhone 15, MacBook Air, Galaxy S24…) and how you’ll pay ({labels})."
+            )
+        elif not pay:
+            facts["checkout_stage"] = "need_payment"
+            line = title or "that item"
+            if price is not None:
+                line += f" — ₹{int(price):,}"
+            answer = (
+                f"• {line} is ready to order.\n"
+                f"How would you like to pay: {labels}?\n"
+                "Reply with UPI, Card, or Cash on delivery."
+            )
+        else:
+            qty = 1
+            import re as _re
+            m = _re.search(r"\b([1-9]|10)\b", text or "")
+            if m:
+                qty = int(m.group(1))
+            created = await self.gateway.call(
+                "create_order",
+                {
+                    "customer_id": self.principal.customer_id,
+                    "payment_method": pay,
+                    "items": [{"product_id": pid, "qty": qty}],
+                },
+            )
+            if created.ok:
+                facts = absorb(facts, "create_order", created.data)
+                facts["checkout_stage"] = "placed"
+                answer = created.data.get("message") or (
+                    f"Order {created.data.get('order_id')} placed. "
+                    f"Total ₹{int(created.data.get('total_inr') or 0):,} via {pay}."
+                )
+                if title:
+                    answer = f"Placed {title} (x{qty}). {answer}"
+            else:
+                facts["checkout_stage"] = "need_payment"
+                answer = created.denial_reason or "I could not place that order. Try signing in again or pick UPI, Card, or COD."
+
+        await self._notify(
+            event_sink,
+            {
+                "type": "agent_done",
+                "agent": "checkout",
+                "summary": answer[:400],
+                "terminal_state": TerminalState.COMPLETED.value,
+                "framework": "checkout",
+            },
+        )
+        sub = [
+            SubResult(
+                agent="checkout",
+                task="collect details and place order",
+                summary=answer,
+                steps=max(self.steps, 1),
+                tools=["search_products", "list_payment_methods"] + (["create_order"] if facts.get("order_id") else []),
+                terminal_state=TerminalState.COMPLETED.value,
+            ).__dict__
+        ]
+        return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
+
     async def _run_multi(self, text: str, facts: dict, intent: str, event_sink=None):
         """Multi-agent mode runs on LangGraph (LangChain multi-agent framework).
 
         Supervisor + specialist StateGraph scoped to the chat persona
         (customer / product / owner). Specialists use the native tool loop
         under mock/eval, or LangChain ``create_react_agent`` when a live key exists.
+        Catalogue browse short-circuits so guest price search cannot hang.
         """
+        fast = await self._fast_catalogue_browse(text, facts, intent, event_sink)
+        if fast:
+            return fast
+        guided = await self._guided_checkout(text, facts, intent, event_sink)
+        if guided:
+            return guided
         from app.agents.langgraph_runtime import run_langgraph_team
         from app.agents.teams import specialists_for
 
@@ -664,6 +1118,12 @@ class Orchestrator:
                 source_id=tr.tool,
             )
         context.add(Provenance.USER, task if task == user_text else f"{user_text}\n\nYour sub-task: {task}")
+        if facts.get("understood_query") and facts.get("query_rewritten"):
+            context.add(
+                Provenance.SYSTEM,
+                "The shopper may misspell or mix Hindi/English. Treat this as their intent: "
+                + str(facts.get("understood_query")),
+            )
 
         meta = {
             "agent": spec.name,
@@ -750,6 +1210,7 @@ class Orchestrator:
         groundedness: Optional[float] = None,
     ) -> RunResult:
         latency_ms = int((time.perf_counter() - started) * 1000)
+        facts = facts or {}
         result = RunResult(
             answer=answer,
             terminal_state=terminal.value,
@@ -760,7 +1221,7 @@ class Orchestrator:
             attempted_trajectory=trace.attempted_tool_names(),
             citations=citations or [],
             sub_results=[s.__dict__ if hasattr(s, "__dict__") else s for s in (sub_results or [])],
-            facts=facts or {},
+            facts=facts,
             trace_id=trace.trace_id,
             run_id=self.run_id,
             approval_id=approval_id,
@@ -770,6 +1231,7 @@ class Orchestrator:
             latency_ms=latency_ms,
             guardrail_triggered=guardrail_triggered or [],
             groundedness=groundedness,
+            suggestions=self._followups(str(facts.get("intent") or ""), facts, answer),
         )
         if self.persist:
             await self._persist(result, trace, conversation_id, user_text)

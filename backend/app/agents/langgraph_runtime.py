@@ -73,10 +73,13 @@ async def _emit(sink: Optional[EventSink], payload: dict) -> None:
         await out  # type: ignore[misc]
 
 
-def _use_langchain_react(orch) -> bool:
-    """Real LangChain ReAct specialists when a live OpenAI-compatible key exists."""
+def _use_langchain_react(orch, agent_name: str = "") -> bool:
+    """ReAct on write-heavy specialists only. Catalogue browse stays on the
+    native loop so guest 'search iPhone prices' cannot hang on Vercel."""
     s = get_settings()
     if s.llm_provider == "mock" or s.cassette_mode == "replay":
+        return False
+    if agent_name in {"shopping", "product", "recommendation", "policy"}:
         return False
     if s.llm_provider in ("openai", "openai-compat", "groq", "gemini") and s.openai_api_key:
         return True
@@ -311,7 +314,7 @@ def build_jewellery_team_graph(
                 },
             )
 
-            if _use_langchain_react(orch):
+            if _use_langchain_react(orch, agent_name):
                 try:
                     child_answer, child_terminal, child_approval = await _run_specialist_langchain(
                         orch, agent_name, task, user_text

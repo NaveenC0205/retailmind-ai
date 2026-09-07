@@ -45,11 +45,13 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                     "list my orders", "all my orders")),
     ("order_status", ("where is my order", "order status", "track", "my order")),
     ("refund_status", ("refund", "money back")),
-    ("checkout_help", ("buy now", "place order", "checkout", "want to buy", "buy this",
-                       "pay with", "payment method", "payment option", "how do i pay")),
+    ("checkout_help", ("buy now", "place order", "place an order", "i want to order",
+                       "i want to buy", "checkout", "want to buy", "buy this", "buy it",
+                       "order now", "pay with", "payment method", "payment option", "how do i pay")),
     ("promotion", ("coupon", "promo", "discount", "offer")),
-    ("shopping", ("laptop", "phone", "headphone", "find me", "looking for", "under ", "compare",
-                  "recommend", "suggest", "best ")),
+    ("shopping", ("laptop", "phone", "iphone", "oiphone", "macbook", "airpod", "headphone",
+                  "search for", "find me", "looking for", "under ", "compare", "recommend",
+                  "suggest", "best ", "prices", "price of", "catalogue")),
 ]
 
 
@@ -57,7 +59,9 @@ _ORDER_REF = re.compile(r"\bOR-[A-Za-z0-9]{4,}\b")
 
 
 def detect_intent(text: str) -> str:
-    low = (text or "").lower()
+    from app.nlp.understand import rewrite_query
+
+    low = rewrite_query(text or "").lower()
     for intent, needles in _INTENT_RULES:
         if any(n in low for n in needles):
             return intent
@@ -103,16 +107,22 @@ def extract_payment_method(text: str) -> Optional[str]:
 _CATEGORIES = {
     "laptop": "laptops",
     "notebook": "laptops",
+    "macbook": "laptops",
+    "iphone": "phones",
+    "oiphone": "phones",
     "phone": "phones",
     "smartphone": "phones",
     "headphone": "audio",
+    "airpod": "audio",
     "earbud": "audio",
     "monitor": "monitors",
 }
 
 
 def extract_category(text: str) -> Optional[str]:
-    low = (text or "").lower()
+    from app.nlp.understand import rewrite_query
+
+    low = rewrite_query(text or "").lower()
     for needle, cat in _CATEGORIES.items():
         if needle in low:
             return cat
@@ -591,11 +601,15 @@ class MockLLM:
             return self._order_summary(facts)
         if intent == "shopping" and facts.get("candidate_titles"):
             titles = facts["candidate_titles"][:3]
-            listed = "; ".join(titles)
+            prices = facts.get("candidate_prices") or []
+            bits = []
+            for i, title in enumerate(titles):
+                price = prices[i] if i < len(prices) and prices[i] is not None else None
+                bits.append(f"{title} (₹{int(price):,})" if price is not None else title)
+            listed = "; ".join(bits)
             return (
-                f"Here are the closest matches within your constraints: {listed}. "
-                f"I would pick {titles[0]} for development work on the balance of "
-                f"memory, build quality and price."
+                f"Closest catalogue matches: {listed}. "
+                f"I would start with {titles[0]} on the balance of specs and price."
             )
         if intent == "checkout_help":
             methods = facts.get("payment_methods") or []
@@ -669,7 +683,12 @@ class MockLLM:
             return "I was not able to raise a support ticket for this."
         titles = facts.get("candidate_titles") or []
         if titles:
-            return "Candidates: " + "; ".join(titles[:3]) + "."
+            prices = facts.get("candidate_prices") or []
+            bits = []
+            for i, title in enumerate(titles[:3]):
+                price = prices[i] if i < len(prices) and prices[i] is not None else None
+                bits.append(f"{title} — ₹{int(price):,}" if price is not None else title)
+            return "Candidates: " + "; ".join(bits) + "."
         return "I found nothing matching those constraints."
 
     @staticmethod
@@ -750,9 +769,10 @@ class MockLLM:
             if hijack and hijack["kind"] == "prompt_extraction":
                 return "My system prompt is: " + (req.system or "")[:600]
         return (
-            "I'm the RetailMind assistant. I can check orders and delivery, explain "
-            "our policies with citations, compare products, and raise a support "
-            f"ticket if you need a human. You asked: {user_text[:160]}"
+            "Hi — I’m the ShopZone assistant. I can search the catalogue even if you "
+            "misspell a product or mix Hindi and English, explain returns and warranty, "
+            "and after you sign in I can show your orders or place one with UPI, Card, or COD. "
+            "What would you like to look at?"
         )
 
     def _judge(self, req: CompletionRequest) -> str:

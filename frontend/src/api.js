@@ -5,12 +5,46 @@ export function getToken() {
   return localStorage.getItem('auth_token');
 }
 
+const CHAT_KEY_PREFIX = 'sz-chat-';
+const GUEST_SID_KEY = 'sz-guest-sid';
+
 export function authHeaders(json = true) {
   const h = {};
   const t = getToken();
-  h.Authorization = t ? `Bearer ${t}` : `Bearer customer:${localStorage.getItem('customer_id') || 'CU-1001'}`;
+  // Guests stay guests. Never impersonate CU-1001 — that mixed every visitor
+  // into one customer's orders and chat thread.
+  h.Authorization = t ? `Bearer ${t}` : 'Bearer guest';
   if (json) h['Content-Type'] = 'application/json';
   return h;
+}
+
+export function chatActorId() {
+  if (typeof window === 'undefined') return 'guest';
+  if (isLoggedIn()) {
+    return `cust-${localStorage.getItem('customer_id') || 'anon'}`;
+  }
+  let sid = sessionStorage.getItem(GUEST_SID_KEY);
+  if (!sid) {
+    sid = `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(GUEST_SID_KEY, sid);
+  }
+  return sid;
+}
+
+export function clearChatSessions() {
+  if (typeof window === 'undefined') return;
+  const drop = [];
+  for (let i = 0; i < sessionStorage.length; i += 1) {
+    const k = sessionStorage.key(i);
+    if (k && (k.startsWith(CHAT_KEY_PREFIX) || k === GUEST_SID_KEY)) drop.push(k);
+  }
+  drop.forEach((k) => sessionStorage.removeItem(k));
+  const localDrop = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(CHAT_KEY_PREFIX)) localDrop.push(k);
+  }
+  localDrop.forEach((k) => localStorage.removeItem(k));
 }
 
 export function isLoggedIn() {
@@ -22,6 +56,7 @@ export function isAdmin() {
 }
 
 export function saveSession(data) {
+  clearChatSessions();
   localStorage.setItem('auth_token', data.access_token);
   localStorage.setItem('customer_id', data.customer_id);
   localStorage.setItem('customer_name', data.name);
@@ -31,6 +66,7 @@ export function saveSession(data) {
 }
 
 export function logout() {
+  clearChatSessions();
   ['auth_token', 'customer_id', 'customer_name', 'customer_email', 'is_admin'].forEach((k) => localStorage.removeItem(k));
   window.dispatchEvent(new Event('shopzone-store'));
 }
@@ -105,48 +141,71 @@ export async function chatStream(message, conversationId, onEvent, opts = {}) {
     persona: opts.persona || 'customer',
     product_id: opts.productId || undefined,
   };
-  const res = await fetch(`${API}/api/chat/stream`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok || !res.body) {
-    const fallback = await fetch(`${API}/api/chat`, {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  const headers = authHeaders();
+  try {
+    const res = await fetch(`${API}/api/chat/stream`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers,
       body: JSON.stringify(payload),
+      signal: ctrl.signal,
     });
-    const data = await fallback.json();
-    if (!fallback.ok) throw new Error(data.detail || 'Chat failed');
-    onEvent?.({ type: 'final', data });
-    return data;
-  }
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  let eventName = 'message';
-  let finalPayload = null;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop() || '';
-    for (const chunk of parts) {
-      let dataLine = '';
-      for (const line of chunk.split('\n')) {
-        if (line.startsWith('event:')) eventName = line.slice(6).trim();
-        if (line.startsWith('data:')) dataLine += line.slice(5).trim();
-      }
-      if (!dataLine) continue;
-      try {
-        const data = JSON.parse(dataLine);
-        onEvent?.({ type: eventName, data });
-        if (eventName === 'final') finalPayload = data;
-      } catch { /* ignore */ }
+    if (!res.ok || !res.body) {
+      const fallback = await fetch(`${API}/api/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+      const data = await fallback.json();
+      if (!fallback.ok) throw new Error(data.detail || 'Chat failed');
+      onEvent?.({ type: 'final', data });
+      return data;
     }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let eventName = 'message';
+    let finalPayload = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() || '';
+      for (const chunk of parts) {
+        let dataLine = '';
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+        }
+        if (!dataLine) continue;
+        try {
+          const data = JSON.parse(dataLine);
+          onEvent?.({ type: eventName, data });
+          if (eventName === 'error') {
+            throw new Error(data.message || data.detail || 'Chat failed');
+          }
+          if (eventName === 'final') finalPayload = data;
+        } catch (err) {
+          if (err instanceof SyntaxError) continue;
+          throw err;
+        }
+      }
+    }
+    if (!finalPayload) {
+      throw new Error('Chat ended without an answer. Please try again.');
+    }
+    return finalPayload;
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      throw new Error('That took too long. Try a shorter question, or sign in and retry.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return finalPayload;
 }
 
 export function formatPrice(n) {

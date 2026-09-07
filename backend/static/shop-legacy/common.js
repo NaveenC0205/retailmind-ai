@@ -9,13 +9,13 @@ const Shop = {
   },
 
   getCustomerId() {
-    return localStorage.getItem('customer_id') || 'CU-1001';
+    return localStorage.getItem('customer_id') || '';
   },
 
   getAuthHeaders(json = false) {
     const headers = {};
     const token = this.getAuthToken();
-    headers['Authorization'] = token ? `Bearer ${token}` : `Bearer customer:${this.getCustomerId()}`;
+    headers['Authorization'] = token ? `Bearer ${token}` : 'Bearer guest';
     if (json) headers['Content-Type'] = 'application/json';
     return headers;
   },

@@ -224,6 +224,7 @@ class RunResult:
     guardrail_triggered: list = field(default_factory=list)
     groundedness: Optional[float] = None
     budget_stop: str = ""
+    suggestions: list = field(default_factory=list)
 
     def succeeded(self) -> bool:
         return self.terminal_state in {s.value for s in GOOD_TERMINAL_STATES}

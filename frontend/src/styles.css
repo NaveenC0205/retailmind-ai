@@ -261,6 +261,17 @@ img { max-width: 100%; display: block; }
   overflow: hidden;
 }
 .sz-chat-head { background: #000; color: #fff; padding: 14px 16px; }
+.sz-chat-head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sz-chat-new {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 980px;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.sz-chat-new:hover { border-color: #fff; }
 .sz-chat-live {
   margin-top: 6px;
   font-size: 10px;

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { chatStream, fetchAgentStatus, isAdmin, isLoggedIn } from '../api'
+import { chatActorId, chatStream, fetchAgentStatus, isAdmin, isLoggedIn } from '../api'
 
 function customerCopy(loggedIn, name) {
   if (loggedIn) {
     return {
       title: 'ShopZone Assistant',
-      sub: 'Your personal shopper · orders, checkout, payments',
-      welcome: `Hi${name ? ` ${name}` : ''}! I’m your logged-in agent. I can show your orders, check payment status, and place items you name after you pick UPI, Card, or Cash on delivery.`,
+      sub: 'Your personal shopper · this session only',
+      welcome: `Hi${name ? ` ${name}` : ''}! This is your private chat for this visit. I can show your orders, check payment status, and place items you name after you pick UPI, Card, or Cash on delivery.`,
       suggests: [
         'Show my recent orders',
         'What payment was used on my latest order?',
@@ -17,12 +17,12 @@ function customerCopy(loggedIn, name) {
   }
   return {
     title: 'ShopZone Assistant',
-    sub: 'Guest · sign in to order',
-    welcome: 'Hi! I can search the catalogue and explain UPI / Card / COD. Sign in so I can show your orders and place items for you.',
+    sub: 'Guest session · sign in to order',
+    welcome: 'Hi! This guest chat is only for this browser session. I can search the catalogue and prices without an account. Sign in for a private order assistant.',
     suggests: [
+      'Search for iPhone and give me the prices',
       'Laptops under 80000 with 16GB RAM',
       'What payment methods can I use?',
-      'What is your return policy?',
       'Sign in to place an order',
     ],
   }
@@ -31,8 +31,8 @@ function customerCopy(loggedIn, name) {
 const PERSONAS = {
   product: {
     title: 'Product Specialist',
-    sub: 'This product · stock, warranty, buy',
-    welcome: 'Ask about this product’s specs, stock, warranty, or say “buy this with UPI” after you sign in.',
+    sub: 'This product · this session only',
+    welcome: 'Ask about this product’s specs, stock, warranty, or say “buy this with UPI” after you sign in. This thread is only for this visit.',
     suggests: [
       'Compare with similar products',
       'Check inventory for this item',
@@ -42,8 +42,8 @@ const PERSONAS = {
   },
   owner: {
     title: 'Seller Ops Concierge',
-    sub: 'Owner agents · orders, inventory, policy',
-    welcome: 'Owner multi-agent desk: pending orders, approve/reject, low stock, and ops policy.',
+    sub: 'Owner agents · this session only',
+    welcome: 'Owner multi-agent desk for this visit: pending orders, approve/reject, low stock, and ops policy.',
     suggests: [
       'List pending orders',
       'Approve the oldest pending order',
@@ -53,6 +53,11 @@ const PERSONAS = {
   },
 }
 
+function welcomeFor(persona, loggedIn, name) {
+  if (persona === 'customer') return customerCopy(loggedIn, name)
+  return PERSONAS[persona] || customerCopy(loggedIn, name)
+}
+
 export default function ChatWidget({
   persona = 'customer',
   productContext = null,
@@ -60,15 +65,16 @@ export default function ChatWidget({
 }) {
   const [loggedIn, setLoggedIn] = useState(() => isLoggedIn())
   const name = typeof window !== 'undefined' ? (localStorage.getItem('customer_name') || '') : ''
-  const cfg = persona === 'customer'
-    ? customerCopy(loggedIn, name)
-    : (PERSONAS[persona] || customerCopy(loggedIn, name))
-  const storageKey = `sz-chat-${persona}-${productContext?.id || 'global'}-${loggedIn ? 'in' : 'out'}`
+  const actorId = typeof window !== 'undefined' ? chatActorId() : 'guest'
+  const cfg = welcomeFor(persona, loggedIn, name)
+  const storageKey = `sz-chat-${persona}-${productContext?.id || 'global'}-${actorId}`
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState(null)
   const [msgs, setMsgs] = useState(() => [{ role: 'bot', text: cfg.welcome }])
   const [conv, setConv] = useState(null)
+  const [suggests, setSuggests] = useState(() => cfg.suggests)
+  const [hydratedKey, setHydratedKey] = useState('')
   const endRef = useRef(null)
 
   useEffect(() => {
@@ -82,23 +88,29 @@ export default function ChatWidget({
   }, [])
 
   useEffect(() => {
+    setHydratedKey('')
+    let nextMsgs = [{ role: 'bot', text: cfg.welcome }]
+    let nextConv = null
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
-      if (saved?.msgs?.length) {
-        setMsgs(saved.msgs)
-        setConv(saved.conv || null)
+      if (saved?.actor === actorId && saved?.msgs?.length) {
+        nextMsgs = saved.msgs
+        nextConv = saved.conv || null
+        if (saved.suggests?.length) setSuggests(saved.suggests)
+        else setSuggests(cfg.suggests)
       } else {
-        setMsgs([{ role: 'bot', text: cfg.welcome }])
-        setConv(null)
+        setSuggests(cfg.suggests)
       }
-    } catch {
-      setMsgs([{ role: 'bot', text: cfg.welcome }])
-    }
-  }, [storageKey, cfg.welcome])
+    } catch { /* start fresh */ }
+    setMsgs(nextMsgs)
+    setConv(nextConv)
+    setHydratedKey(storageKey)
+  }, [storageKey, actorId, cfg.welcome])
 
   useEffect(() => {
-    sessionStorage.setItem(storageKey, JSON.stringify({ msgs, conv }))
-  }, [msgs, conv, storageKey])
+    if (hydratedKey !== storageKey) return
+    sessionStorage.setItem(storageKey, JSON.stringify({ actor: actorId, msgs, conv, suggests }))
+  }, [msgs, conv, storageKey, actorId, hydratedKey])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -119,6 +131,13 @@ export default function ChatWidget({
     return null
   }
 
+  function newChat() {
+    setConv(null)
+    setMsgs([{ role: 'bot', text: cfg.welcome }])
+    setSuggests(cfg.suggests)
+    sessionStorage.removeItem(storageKey)
+  }
+
   async function send(text) {
     const raw = (text || input).trim()
     if (!raw) return
@@ -137,6 +156,14 @@ export default function ChatWidget({
             return copy
           })
         }
+        if (ev.type === 'agent' && ev.data?.type === 'agent_done') {
+          setMsgs((m) => {
+            const copy = [...m]
+            const snippet = String(ev.data.summary || '').slice(0, 80)
+            copy[copy.length - 1] = { role: 'bot', text: snippet ? `${ev.data.agent} done. ${snippet}` : `${ev.data.agent} done.` }
+            return copy
+          })
+        }
         if (ev.type === 'agent' && ev.data?.type === 'graph_start') {
           setMsgs((m) => {
             const copy = [...m]
@@ -144,8 +171,12 @@ export default function ChatWidget({
             return copy
           })
         }
+        if (ev.type === 'error') {
+          throw new Error(ev.data?.message || 'Chat failed')
+        }
       }, { persona, productId: productContext?.id })
       if (final?.conversation_id) setConv(final.conversation_id)
+      if (final?.suggestions?.length) setSuggests(final.suggestions)
       const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 140)}`).join('\n')
       const cites = (final?.citations || []).slice(0, 4)
       const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
@@ -183,7 +214,10 @@ export default function ChatWidget({
       <button type="button" className={`sz-chat-fab ${persona === 'owner' ? 'owner' : ''}`} data-testid={`chat-fab-close-${persona}`} onClick={() => setOpen(false)}>×</button>
       <div className="sz-chat-panel" data-testid={`chat-panel-${persona}`} role="dialog">
         <div className="sz-chat-head">
-          <strong>{cfg.title}</strong>
+          <div className="sz-chat-head-row">
+            <strong>{cfg.title}</strong>
+            <button type="button" className="sz-chat-new" data-testid={`chat-new-${persona}`} onClick={newChat}>New chat</button>
+          </div>
           <div style={{ fontSize: 11, opacity: 0.7 }}>{cfg.sub}</div>
           <div className={`sz-chat-live ${status?.llm_live ? 'on' : 'off'}`} data-testid={`chat-live-${persona}`}>{liveLabel}</div>
         </div>
@@ -194,7 +228,7 @@ export default function ChatWidget({
           <div ref={endRef} />
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 10px 8px' }}>
-          {cfg.suggests.map((s) => (
+          {suggests.map((s) => (
             <button key={s} type="button" className="sz-btn sz-btn-ghost" style={{ padding: '6px 10px', fontSize: 11 }} data-testid={`chat-suggest-${persona}`} onClick={() => send(s)}>{s}</button>
           ))}
         </div>

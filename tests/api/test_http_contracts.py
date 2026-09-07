@@ -64,6 +64,61 @@ async def test_absent_credentials_are_a_guest_not_an_error(client):
     assert r.status_code == 200
 
 
+async def test_guest_typo_search_returns_iphone_prices(client):
+    r = await client.post(
+        "/api/chat",
+        json={"message": "serch for oiphone and give me the prces", "mode": "multi_agent"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    answer = body["answer"]
+    assert "iPhone" in answer or "iphone" in answer.lower()
+    assert "₹" in answer or "69900" in answer.replace(",", "")
+
+
+async def test_chat_conversation_is_scoped_to_the_caller(client):
+    first = (await client.post("/api/chat", json={"message": "hello"}, headers=NAVEEN)).json()
+    stolen = (await client.post(
+        "/api/chat",
+        json={"message": "hello again", "conversation_id": first["conversation_id"]},
+        headers=PRIYA,
+    )).json()
+    assert stolen["conversation_id"] != first["conversation_id"]
+
+
+async def test_guest_place_order_collects_signin_and_suggests(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "i tot place order", "mode": "multi_agent"},
+    )).json()
+    low = body["answer"].lower()
+    assert "sign in" in low
+    assert body.get("suggestions")
+    assert any("sign in" in s.lower() for s in body["suggestions"])
+
+
+async def test_logged_in_checkout_asks_for_payment_then_places(client):
+    ask = (await client.post(
+        "/api/chat",
+        json={"message": "buy iPhone 15", "mode": "multi_agent"},
+        headers=NAVEEN,
+    )).json()
+    assert "UPI" in ask["answer"] or "upi" in ask["answer"].lower()
+    assert ask.get("suggestions")
+    placed = (await client.post(
+        "/api/chat",
+        json={
+            "message": "pay with UPI",
+            "mode": "multi_agent",
+            "conversation_id": ask["conversation_id"],
+        },
+        headers=NAVEEN,
+    )).json()
+    low = placed["answer"].lower()
+    assert "placed" in low or "or-" in low
+    assert any("order" in s.lower() for s in (placed.get("suggestions") or ["Show my recent orders"]))
+
+
 async def test_an_empty_message_is_rejected_by_the_schema(client):
     assert (await client.post("/api/chat", json={"message": ""}, headers=NAVEEN)).status_code == 422
 

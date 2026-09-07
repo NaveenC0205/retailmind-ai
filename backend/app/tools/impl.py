@@ -7,6 +7,7 @@ authorization -- that is the gateway's job and duplicating it here is how
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -119,12 +120,62 @@ async def own_ticket(session, principal, args: dict) -> Optional[str]:
 # product
 # ----------------------------------------------------------------------
 
+def _normalize_search_query(q: str) -> str:
+    from app.nlp.understand import rewrite_query
+
+    return rewrite_query(q or "")
+
+
+def _token_distance(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a or not b or abs(len(a) - len(b)) > 3:
+        return 99
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _search_relevance(p: Product, q: str, terms: list[str]) -> int:
+    hay = f"{p.title} {p.brand} {p.category} {json.dumps(p.attributes or {}, default=str)}".lower()
+    title_words = re.findall(r"[a-z0-9]+", f"{p.title} {p.brand}".lower())
+    score = 0
+    for t in terms:
+        if t in hay:
+            score += 3
+        elif len(t) >= 4 and any(t[:4] in part for part in hay.split()):
+            score += 1
+        elif len(t) >= 4:
+            best = min((_token_distance(t, w) for w in title_words), default=99)
+            if best <= 2:
+                score += 2
+    if "iphone" in q or "apple" in q:
+        if p.category == "phones" and p.brand.lower() == "apple":
+            score += 8
+        if "iphone" in (p.title or "").lower():
+            score += 10
+    if "phone" in q and p.category == "phones":
+        score += 2
+    return score
+
+
 async def search_products(session, principal, args: dict) -> dict:
     stmt = select(Product)
-    if args.get("category"):
-        stmt = stmt.where(Product.category == args["category"])
-    if args.get("brand"):
-        stmt = stmt.where(Product.brand == args["brand"])
+    q = _normalize_search_query(args.get("query") or "")
+    # Infer Apple phones from iPhone-ish queries even with typos.
+    category = args.get("category")
+    brand = args.get("brand")
+    if not category and "iphone" in q:
+        category = "phones"
+        brand = brand or "Apple"
+    if category:
+        stmt = stmt.where(Product.category == category)
+    if brand:
+        stmt = stmt.where(Product.brand == brand)
     if args.get("min_price_inr") is not None:
         stmt = stmt.where(Product.price_inr >= args["min_price_inr"])
     if args.get("max_price_inr"):
@@ -156,13 +207,11 @@ async def search_products(session, principal, args: dict) -> dict:
 
     rows = [p for p in rows if attrs_ok(p)]
 
-    q = (args.get("query") or "").lower()
     if q:
-        terms = [t for t in q.split() if len(t) > 2]
-        def relevance(p: Product) -> int:
-            hay = f"{p.title} {p.brand} {p.category} {p.attributes}".lower()
-            return sum(1 for t in terms if t in hay)
-        rows = sorted(rows, key=lambda p: (relevance(p), p.rating), reverse=True)
+        stop = {"the", "and", "for", "give", "me", "search", "show", "find", "with", "from", "prices", "price"}
+        terms = [t for t in q.split() if len(t) > 2 and t not in stop]
+        rows = sorted(rows, key=lambda p: (_search_relevance(p, q, terms), p.rating), reverse=True)
+        rows = [p for p in rows if _search_relevance(p, q, terms) > 0] or rows
     else:
         rows = sorted(rows, key=lambda p: p.rating, reverse=True)
 

@@ -51,6 +51,19 @@ from app.tracing import current_trace, flush, new_trace
 router = APIRouter()
 
 
+async def bind_conversation(session, principal: Principal, requested_id: Optional[str], mode: str) -> str:
+    """Reuse a thread only when it belongs to this person. Guests and other
+    customers never continue someone else's (or a previous login's) chat."""
+    owner = principal.customer_id or "guest"
+    if requested_id:
+        row = await session.get(Conversation, requested_id)
+        if row is not None and row.customer_id == owner:
+            return requested_id
+    conversation_id = new_id("CONV")
+    session.add(Conversation(id=conversation_id, customer_id=owner, mode=mode))
+    return conversation_id
+
+
 # ======================================================================
 # health
 # ======================================================================
@@ -194,6 +207,7 @@ class ChatResponse(BaseModel):
     persona: str = "customer"
     llm_backend: str = ""
     llm_live: bool = False
+    suggestions: list[str] = []
 
 
 @router.post("/api/chat", response_model=ChatResponse, tags=["chat"])
@@ -203,15 +217,7 @@ async def chat(
     session=Depends(get_session),
 ):
     trace = new_trace()
-    conversation_id = body.conversation_id or new_id("CONV")
-    if not body.conversation_id:
-        session.add(
-            Conversation(
-                id=conversation_id,
-                customer_id=principal.customer_id or "guest",
-                mode=body.mode,
-            )
-        )
+    conversation_id = await bind_conversation(session, principal, body.conversation_id, body.mode)
     session.add(
         Message(
             id=new_id("MSG"),
@@ -270,6 +276,7 @@ async def chat(
         persona=orch.persona,
         llm_backend=s.llm_backend,
         llm_live=s.llm_backend != "mock",
+        suggestions=list(result.suggestions or []),
     )
 
 
@@ -281,8 +288,8 @@ async def chat_stream(
 ):
     """SSE stream of LangGraph multi-agent events, then a final chat payload."""
     queue: asyncio.Queue = asyncio.Queue()
-    conversation_id = body.conversation_id or new_id("CONV")
     mode = body.mode if body.mode != "auto" else "multi_agent"
+    conversation_id = await bind_conversation(session, principal, body.conversation_id, mode)
 
     async def event_sink(ev: dict):
         await queue.put({"event": "agent", "data": ev})
@@ -290,14 +297,6 @@ async def chat_stream(
     async def runner():
         trace = new_trace()
         try:
-            if not body.conversation_id:
-                session.add(
-                    Conversation(
-                        id=conversation_id,
-                        customer_id=principal.customer_id or "guest",
-                        mode=mode,
-                    )
-                )
             session.add(
                 Message(
                     id=new_id("MSG"),
@@ -353,6 +352,7 @@ async def chat_stream(
                         "persona": orch.persona,
                         "llm_backend": get_settings().llm_backend,
                         "llm_live": get_settings().llm_backend != "mock",
+                        "suggestions": list(result.suggestions or []),
                     },
                 }
             )
