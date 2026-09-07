@@ -134,6 +134,3 @@ def get_settings() -> Settings:
 
 def reset_settings_cache() -> None:
     get_settings.cache_clear()
-
-
-settings = get_settings()

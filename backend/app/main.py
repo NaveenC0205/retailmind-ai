@@ -103,4 +103,20 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+try:
+    app = create_app()
+except Exception:  # noqa: BLE001
+    import traceback
+
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+
+    _err = traceback.format_exc()
+    app = FastAPI(title="ShopZone (startup error)")
+
+    @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def startup_error(full_path: str = ""):
+        return JSONResponse(
+            status_code=500,
+            content={"error": "create_app_failed", "traceback": _err},
+        )
