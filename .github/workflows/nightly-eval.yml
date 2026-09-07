@@ -1,0 +1,33 @@
+# The stochastic tier. Real models, judges, and the comparisons that are too
+# slow for a commit hook. A failure here is a ticket, not a blocked merge --
+# except for the safety gates, which block a release.
+name: nightly-eval
+
+on:
+  schedule: [{cron: "0 20 * * *"}]   # 01:30 IST
+  workflow_dispatch:
+
+jobs:
+  live-tier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[test]"
+      - run: python scripts/bootstrap.py
+
+      - name: RAG quality with judges
+        env: {OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"}
+        run: python scripts/run_eval.py rag/policy_qa --judge --json > rag.json
+
+      - name: Prompt v2 vs v1, paired with a confidence interval
+        run: |
+          python scripts/run_eval.py rag/policy_qa \
+            --prompt-version v2 --compare v1 --metric lexical_groundedness
+
+      - name: Performance
+        run: pytest -m performance -q
+
+      - uses: actions/upload-artifact@v4
+        with: {name: eval-reports, path: "*.json"}

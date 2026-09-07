@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management - RetailMind Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <script>
+      (function () {
+        const token = localStorage.getItem('auth_token');
+        const isAdmin = localStorage.getItem('is_admin') === 'true';
+        if (!token || !isAdmin) {
+          window.location.href = '/shop/login.html?role=owner&redirect=' + encodeURIComponent(window.location.pathname);
+        }
+      })();
+    </script>
+
+    <!-- Admin Navigation -->
+    <nav class="bg-gray-900 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-4">
+                    <a href="/shop/admin/" class="text-2xl font-bold">⚙️ Admin Panel</a>
+                    <span class="bg-red-600 px-2 py-1 text-xs rounded">ADMIN</span>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <a href="/shop/admin/" class="hover:text-gray-300">Dashboard</a>
+                    <a href="/shop/admin/orders.html" class="hover:text-gray-300">Orders</a>
+                    <a href="/shop/admin/products.html" class="hover:text-gray-300">Products</a>
+                    <a href="/shop/admin/inventory.html" class="text-white">Inventory</a>
+                    <a href="/shop/" class="bg-indigo-600 px-3 py-1 rounded hover:bg-indigo-500">View Shop</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold"><i class="fas fa-warehouse mr-2"></i>Inventory Management</h1>
+            <div class="flex space-x-2">
+                <select id="warehouse-filter" onchange="filterInventory()" class="border rounded-lg px-4 py-2">
+                    <option value="all">All Warehouses</option>
+                    <option value="BLR-1">Bangalore (BLR-1)</option>
+                    <option value="MUM-1">Mumbai (MUM-1)</option>
+                    <option value="DEL-1">Delhi (DEL-1)</option>
+                </select>
+                <button onclick="loadInventory()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Inventory Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-lg shadow p-4">
+                <p class="text-gray-500 text-sm">Total Products</p>
+                <p class="text-2xl font-bold" id="stat-total">0</p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-4">
+                <p class="text-gray-500 text-sm">In Stock</p>
+                <p class="text-2xl font-bold text-green-600" id="stat-instock">0</p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-4">
+                <p class="text-gray-500 text-sm">Low Stock</p>
+                <p class="text-2xl font-bold text-orange-600" id="stat-low">0</p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-4">
+                <p class="text-gray-500 text-sm">Out of Stock</p>
+                <p class="text-2xl font-bold text-red-600" id="stat-out">0</p>
+            </div>
+        </div>
+
+        <!-- Inventory Table -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Warehouse</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Available</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reserved</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-table" class="divide-y divide-gray-200">
+                    <!-- Loaded dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Update Stock Modal -->
+    <div id="stock-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b">
+                <h2 class="text-xl font-bold">Update Stock</h2>
+            </div>
+            <div class="p-6">
+                <div class="mb-4">
+                    <p class="text-gray-500 text-sm">Product</p>
+                    <p class="font-bold" id="modal-product"></p>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2">Warehouse</label>
+                    <select id="modal-warehouse" class="w-full border rounded-lg p-3">
+                        <option value="BLR-1">Bangalore (BLR-1)</option>
+                        <option value="MUM-1">Mumbai (MUM-1)</option>
+                        <option value="DEL-1">Delhi (DEL-1)</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2">Quantity Change</label>
+                    <div class="flex items-center space-x-4">
+                        <button onclick="adjustQty(-10)" class="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200">-10</button>
+                        <button onclick="adjustQty(-1)" class="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200">-1</button>
+                        <input type="number" id="modal-qty" value="0" class="w-24 text-center border rounded-lg p-3 text-xl font-bold">
+                        <button onclick="adjustQty(1)" class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200">+1</button>
+                        <button onclick="adjustQty(10)" class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200">+10</button>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2">Reason</label>
+                    <select id="modal-reason" class="w-full border rounded-lg p-3">
+                        <option value="restock">Restock</option>
+                        <option value="return">Customer Return</option>
+                        <option value="damaged">Damaged</option>
+                        <option value="adjustment">Manual Adjustment</option>
+                        <option value="transfer">Warehouse Transfer</option>
+                    </select>
+                </div>
+                <div class="flex space-x-4">
+                    <button onclick="closeStockModal()" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300">
+                        Cancel
+                    </button>
+                    <button onclick="saveStock()" class="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700">
+                        <i class="fas fa-save mr-2"></i>Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let allInventory = [];
+        let currentProductId = null;
+
+        function getStockStatus(qty) {
+            if (qty === 0) return { class: 'bg-red-100 text-red-700', text: 'OUT OF STOCK' };
+            if (qty < 10) return { class: 'bg-orange-100 text-orange-700', text: 'LOW STOCK' };
+            return { class: 'bg-green-100 text-green-700', text: 'IN STOCK' };
+        }
+
+        async function loadInventory() {
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/inventory`);
+                const data = await response.json();
+                allInventory = data.inventory || [];
+                renderInventory(allInventory);
+                updateStats();
+            } catch (error) {
+                console.error('Error:', error);
+                // Demo data
+                allInventory = [
+                    { product_id: 'PRD-L001', product_title: 'Zenline 14 Laptop', sku: 'ZL14-BLK', warehouse: 'BLR-1', qty_available: 25, qty_reserved: 3 },
+                    { product_id: 'PRD-L002', product_title: 'ProBook 16', sku: 'PB16-SLV', warehouse: 'BLR-1', qty_available: 12, qty_reserved: 2 },
+                    { product_id: 'PRD-L003', product_title: 'DevMaster Pro', sku: 'DMP-BLK', warehouse: 'BLR-1', qty_available: 8, qty_reserved: 1 },
+                    { product_id: 'PRD-P001', product_title: 'ProPhone X', sku: 'PPX-256', warehouse: 'MUM-1', qty_available: 50, qty_reserved: 5 },
+                    { product_id: 'PRD-P002', product_title: 'Budget Phone 5G', sku: 'BP5G-128', warehouse: 'MUM-1', qty_available: 0, qty_reserved: 0 },
+                    { product_id: 'PRD-A001', product_title: 'Wireless Earbuds Pro', sku: 'WEP-WHT', warehouse: 'DEL-1', qty_available: 100, qty_reserved: 8 },
+                    { product_id: 'PRD-A002', product_title: 'Studio Headphones', sku: 'SHP-BLK', warehouse: 'DEL-1', qty_available: 5, qty_reserved: 2 },
+                    { product_id: 'PRD-M001', product_title: 'UltraWide Monitor 34"', sku: 'UWM34-BLK', warehouse: 'BLR-1', qty_available: 15, qty_reserved: 0 }
+                ];
+                renderInventory(allInventory);
+                updateStats();
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('stat-total').textContent = allInventory.length;
+            document.getElementById('stat-instock').textContent = allInventory.filter(i => i.qty_available >= 10).length;
+            document.getElementById('stat-low').textContent = allInventory.filter(i => i.qty_available > 0 && i.qty_available < 10).length;
+            document.getElementById('stat-out').textContent = allInventory.filter(i => i.qty_available === 0).length;
+        }
+
+        function filterInventory() {
+            const warehouse = document.getElementById('warehouse-filter').value;
+            const filtered = warehouse === 'all' ? allInventory : allInventory.filter(i => i.warehouse === warehouse);
+            renderInventory(filtered);
+        }
+
+        function renderInventory(items) {
+            document.getElementById('inventory-table').innerHTML = items.map(item => {
+                const status = getStockStatus(item.qty_available);
+                return `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                        <div class="font-medium">${item.product_title}</div>
+                        <div class="text-sm text-gray-500">${item.product_id}</div>
+                    </td>
+                    <td class="px-6 py-4 font-mono">${item.sku}</td>
+                    <td class="px-6 py-4">${item.warehouse}</td>
+                    <td class="px-6 py-4">
+                        <span class="text-2xl font-bold ${item.qty_available === 0 ? 'text-red-600' : item.qty_available < 10 ? 'text-orange-600' : 'text-green-600'}">
+                            ${item.qty_available}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-gray-500">${item.qty_reserved}</td>
+                    <td class="px-6 py-4">
+                        <span class="px-3 py-1 rounded-full text-xs ${status.class}">${status.text}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <button onclick="openStockModal('${item.product_id}', '${item.product_title}', '${item.warehouse}')" 
+                                class="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-200">
+                            <i class="fas fa-edit mr-1"></i>Update
+                        </button>
+                    </td>
+                </tr>
+            `}).join('');
+        }
+
+        function openStockModal(productId, title, warehouse) {
+            currentProductId = productId;
+            document.getElementById('modal-product').textContent = title;
+            document.getElementById('modal-warehouse').value = warehouse;
+            document.getElementById('modal-qty').value = 0;
+            document.getElementById('stock-modal').classList.remove('hidden');
+        }
+
+        function closeStockModal() {
+            document.getElementById('stock-modal').classList.add('hidden');
+            currentProductId = null;
+        }
+
+        function adjustQty(delta) {
+            const input = document.getElementById('modal-qty');
+            input.value = parseInt(input.value) + delta;
+        }
+
+        async function saveStock() {
+            const qty = parseInt(document.getElementById('modal-qty').value);
+            const warehouse = document.getElementById('modal-warehouse').value;
+            const reason = document.getElementById('modal-reason').value;
+
+            if (qty === 0) {
+                alert('Please enter a quantity change');
+                return;
+            }
+
+            // Find and update the item
+            const item = allInventory.find(i => i.product_id === currentProductId && i.warehouse === warehouse);
+            if (item) {
+                item.qty_available = Math.max(0, item.qty_available + qty);
+            }
+
+            showToast(`Stock updated: ${qty > 0 ? '+' : ''}${qty} units (${reason})`, 'success');
+            renderInventory(allInventory);
+            updateStats();
+            closeStockModal();
+        }
+
+        function showToast(message, type = 'success') {
+            const colors = { success: 'bg-green-600', warning: 'bg-orange-600', error: 'bg-red-600' };
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        document.addEventListener('DOMContentLoaded', loadInventory);
+    </script>
+</body>
+</html>

@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Management - RetailMind Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <script>
+      (function () {
+        const token = localStorage.getItem('auth_token');
+        const isAdmin = localStorage.getItem('is_admin') === 'true';
+        if (!token || !isAdmin) {
+          window.location.href = '/shop/login.html?role=owner&redirect=' + encodeURIComponent(window.location.pathname);
+        }
+      })();
+    </script>
+
+    <!-- Admin Navigation -->
+    <nav class="bg-gray-900 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-4">
+                    <a href="/shop/admin/" class="text-2xl font-bold">⚙️ Admin Panel</a>
+                    <span class="bg-red-600 px-2 py-1 text-xs rounded">ADMIN</span>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <a href="/shop/admin/" class="hover:text-gray-300">Dashboard</a>
+                    <a href="/shop/admin/orders.html" class="text-white">Orders</a>
+                    <a href="/shop/admin/products.html" class="hover:text-gray-300">Products</a>
+                    <a href="/shop/admin/inventory.html" class="hover:text-gray-300">Inventory</a>
+                    <a href="/shop/" class="bg-indigo-600 px-3 py-1 rounded hover:bg-indigo-500">View Shop</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold"><i class="fas fa-clipboard-list mr-2"></i>Order Management</h1>
+            <div class="flex space-x-2">
+                <select id="status-filter" onchange="filterOrders()" class="border rounded-lg px-4 py-2">
+                    <option value="all">All Status</option>
+                    <option value="placed">Placed</option>
+                    <option value="packed">Packed</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+                <button onclick="loadOrders()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Orders Table -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="orders-table" class="divide-y divide-gray-200">
+                    <!-- Orders loaded dynamically -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="loading" class="text-center py-8 hidden">
+            <i class="fas fa-spinner fa-spin text-4xl text-indigo-600"></i>
+        </div>
+    </div>
+
+    <!-- Order Detail Modal -->
+    <div id="order-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b sticky top-0 bg-white flex justify-between items-center">
+                <h2 class="text-2xl font-bold">Order Details</h2>
+                <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+            </div>
+            <div id="modal-content" class="p-6">
+                <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        let allOrders = [];
+
+        const statusFlow = ['placed', 'packed', 'shipped', 'delivered'];
+
+        function getStatusBadge(status) {
+            const styles = {
+                'placed': 'bg-blue-100 text-blue-700',
+                'packed': 'bg-yellow-100 text-yellow-700',
+                'shipped': 'bg-purple-100 text-purple-700',
+                'delivered': 'bg-green-100 text-green-700',
+                'cancelled': 'bg-red-100 text-red-700',
+                'returned': 'bg-gray-100 text-gray-700'
+            };
+            return styles[status] || 'bg-gray-100 text-gray-700';
+        }
+
+        function getNextStatus(current) {
+            const idx = statusFlow.indexOf(current);
+            return idx >= 0 && idx < statusFlow.length - 1 ? statusFlow[idx + 1] : null;
+        }
+
+        async function loadOrders() {
+            document.getElementById('loading').classList.remove('hidden');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/orders`, {
+                    headers: { 'Authorization': 'Bearer operator:admin' }
+                });
+                const data = await response.json();
+                allOrders = data.orders || [];
+                renderOrders(allOrders);
+            } catch (error) {
+                console.error('Error loading orders:', error);
+                // Demo data
+                allOrders = [
+                    { id: 'OR-20001', customer_id: 'CU-1001', total_inr: 72999, status: 'shipped', placed_at: '2026-09-01T10:30:00Z', items: [{product_id: 'PRD-L001', title: 'Zenline 14 Laptop', qty: 1}] },
+                    { id: 'OR-20002', customer_id: 'CU-1001', total_inr: 34999, status: 'delivered', placed_at: '2026-08-25T14:00:00Z', items: [{product_id: 'PRD-P001', title: 'ProPhone X', qty: 1}] },
+                    { id: 'OR-20003', customer_id: 'CU-1001', total_inr: 4999, status: 'placed', placed_at: '2026-09-06T09:00:00Z', items: [{product_id: 'PRD-A001', title: 'Wireless Earbuds', qty: 2}] },
+                    { id: 'OR-20004', customer_id: 'CU-1002', total_inr: 15999, status: 'packed', placed_at: '2026-09-05T16:00:00Z', items: [{product_id: 'PRD-P002', title: 'Budget Phone', qty: 1}] },
+                    { id: 'OR-20005', customer_id: 'CU-1003', total_inr: 89999, status: 'placed', placed_at: '2026-09-06T11:00:00Z', items: [{product_id: 'PRD-L002', title: 'ProBook 16', qty: 1}] }
+                ];
+                renderOrders(allOrders);
+            }
+            
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function filterOrders() {
+            const status = document.getElementById('status-filter').value;
+            const filtered = status === 'all' ? allOrders : allOrders.filter(o => o.status === status);
+            renderOrders(filtered);
+        }
+
+        function renderOrders(orders) {
+            document.getElementById('orders-table').innerHTML = orders.map(order => {
+                const nextStatus = getNextStatus(order.status);
+                return `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 font-mono font-bold">${order.id}</td>
+                    <td class="px-6 py-4">${order.customer_id}</td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm">${order.items?.[0]?.title || 'Product'}</div>
+                        <div class="text-xs text-gray-500">${order.items?.length || 1} item(s)</div>
+                    </td>
+                    <td class="px-6 py-4 font-bold">₹${order.total_inr.toLocaleString()}</td>
+                    <td class="px-6 py-4">
+                        <span class="px-3 py-1 rounded-full text-sm ${getStatusBadge(order.status)}">${order.status.toUpperCase()}</span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                        ${new Date(order.placed_at).toLocaleDateString('en-IN')}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex space-x-2">
+                            <button onclick="viewOrder('${order.id}')" class="text-indigo-600 hover:text-indigo-800" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            ${nextStatus ? `
+                                <button onclick="updateStatus('${order.id}', '${nextStatus}')" class="text-green-600 hover:text-green-800" title="Move to ${nextStatus}">
+                                    <i class="fas fa-arrow-right"></i>
+                                </button>
+                            ` : ''}
+                            ${order.status !== 'cancelled' && order.status !== 'delivered' ? `
+                                <button onclick="cancelOrder('${order.id}')" class="text-red-600 hover:text-red-800" title="Cancel Order">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            ` : ''}
+                            ${order.status === 'delivered' ? `
+                                <button onclick="processRefund('${order.id}')" class="text-orange-600 hover:text-orange-800" title="Process Refund">
+                                    <i class="fas fa-undo"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `}).join('');
+        }
+
+        async function updateStatus(orderId, newStatus) {
+            if (!confirm(`Update order ${orderId} to "${newStatus}"?`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/admin/orders/${orderId}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer operator:admin'
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                
+                if (response.ok) {
+                    showToast(`Order ${orderId} updated to ${newStatus}`, 'success');
+                    loadOrders();
+                }
+            } catch (error) {
+                // Demo mode - update locally
+                const order = allOrders.find(o => o.id === orderId);
+                if (order) {
+                    order.status = newStatus;
+                    renderOrders(allOrders);
+                    showToast(`Order ${orderId} updated to ${newStatus}`, 'success');
+                }
+            }
+        }
+
+        async function cancelOrder(orderId) {
+            if (!confirm(`Cancel order ${orderId}? This cannot be undone.`)) return;
+
+            try {
+                await fetch(`${API_BASE}/api/admin/orders/${orderId}/cancel`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer operator:admin' }
+                });
+            } catch (error) {
+                // Demo mode
+            }
+            
+            const order = allOrders.find(o => o.id === orderId);
+            if (order) {
+                order.status = 'cancelled';
+                renderOrders(allOrders);
+                showToast(`Order ${orderId} cancelled`, 'warning');
+            }
+        }
+
+        async function processRefund(orderId) {
+            const order = allOrders.find(o => o.id === orderId);
+            if (!order) return;
+            
+            if (!confirm(`Process refund of ₹${order.total_inr.toLocaleString()} for order ${orderId}?`)) return;
+
+            showToast(`Refund of ₹${order.total_inr.toLocaleString()} initiated for ${orderId}`, 'success');
+            order.status = 'returned';
+            renderOrders(allOrders);
+        }
+
+        function viewOrder(orderId) {
+            const order = allOrders.find(o => o.id === orderId);
+            if (!order) return;
+
+            document.getElementById('order-modal').classList.remove('hidden');
+            document.getElementById('modal-content').innerHTML = `
+                <div class="space-y-6">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-gray-500 text-sm">Order ID</p>
+                            <p class="font-mono font-bold text-lg">${order.id}</p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500 text-sm">Status</p>
+                            <span class="px-3 py-1 rounded-full ${getStatusBadge(order.status)}">${order.status.toUpperCase()}</span>
+                        </div>
+                        <div>
+                            <p class="text-gray-500 text-sm">Customer</p>
+                            <p class="font-bold">${order.customer_id}</p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500 text-sm">Order Date</p>
+                            <p>${new Date(order.placed_at).toLocaleString('en-IN')}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="font-semibold mb-3">Items</h4>
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            ${(order.items || []).map(item => `
+                                <div class="flex justify-between items-center py-2">
+                                    <div>
+                                        <p class="font-medium">${item.title || item.product_id}</p>
+                                        <p class="text-sm text-gray-500">Qty: ${item.qty}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="border-t pt-4">
+                        <div class="flex justify-between text-xl font-bold">
+                            <span>Total</span>
+                            <span class="text-indigo-600">₹${order.total_inr.toLocaleString()}</span>
+                        </div>
+                    </div>
+
+                    <div class="border-t pt-4">
+                        <h4 class="font-semibold mb-3">Update Status</h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${statusFlow.map(s => `
+                                <button onclick="updateStatus('${order.id}', '${s}'); closeModal();" 
+                                        class="px-4 py-2 rounded-lg ${order.status === s ? 'bg-indigo-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}">
+                                    ${s.charAt(0).toUpperCase() + s.slice(1)}
+                                </button>
+                            `).join('')}
+                            <button onclick="cancelOrder('${order.id}'); closeModal();" 
+                                    class="px-4 py-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function closeModal() {
+            document.getElementById('order-modal').classList.add('hidden');
+        }
+
+        function showToast(message, type = 'success') {
+            const colors = {
+                success: 'bg-green-600',
+                warning: 'bg-orange-600',
+                error: 'bg-red-600'
+            };
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        document.addEventListener('DOMContentLoaded', loadOrders);
+    </script>
+</body>
+</html>

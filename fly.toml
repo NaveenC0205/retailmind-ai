@@ -1,0 +1,38 @@
+# Fly.io. Requires a card on file even on the free allowance.
+#   fly launch --no-deploy --copy-config
+#   fly volumes create retailmind_data --size 1 --region sin
+#   fly deploy
+app = "retailmind-ai"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LLM_PROVIDER = "mock"
+  EMBEDDING_PROVIDER = "hashed"
+  PUBLIC_DEMO = "true"
+  RATE_LIMIT_PER_MIN = "30"
+  DATABASE_URL = "sqlite+aiosqlite:////data/retailmind.db"
+
+[[mounts]]
+  source = "retailmind_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"    # scale to zero between visitors
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "40s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

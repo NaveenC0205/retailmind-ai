@@ -1,0 +1,55 @@
+[project]
+name = "retailmind-ai"
+version = "0.1.0"
+description = "Enterprise agentic AI retail platform, built as an AI evaluation / test engineering environment."
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "sqlalchemy[asyncio]>=2.0.25",
+    "aiosqlite>=0.19",
+    "httpx>=0.26",
+    "numpy>=1.24",
+    "python-multipart>=0.0.9",
+    "bcrypt>=4.0",
+    "python-jose[cryptography]>=3.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "anyio>=4.2",
+]
+postgres = ["asyncpg>=0.29", "pgvector>=0.2.5"]
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["app*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["backend"]
+addopts = "-q --strict-markers"
+markers = [
+    "unit: fast isolated tests",
+    "api: HTTP contract tests",
+    "integration: cross-component tests",
+    "e2e: full stack request-to-response",
+    "rag: retrieval and generation quality",
+    "agents: agent trajectory and behaviour",
+    "evaluation: tests of the evaluation framework itself",
+    "security: authz, isolation, IDOR",
+    "adversarial: red-team attack corpus",
+    "performance: latency and throughput",
+    "conformance: architecture rules",
+    "live: requires a real LLM provider (skipped by default)",
+]

@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Management - RetailMind Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <script>
+      (function () {
+        const token = localStorage.getItem('auth_token');
+        const isAdmin = localStorage.getItem('is_admin') === 'true';
+        if (!token || !isAdmin) {
+          window.location.href = '/shop/login.html?role=owner&redirect=' + encodeURIComponent(window.location.pathname);
+        }
+      })();
+    </script>
+
+    <!-- Navigation -->
+    <nav class="bg-gray-800 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center h-16">
+                <a href="/shop/admin/" class="text-2xl font-bold text-orange-400">RetailMind Admin</a>
+                <div class="flex items-center space-x-6">
+                    <a href="/shop/admin/" class="hover:text-orange-300">Dashboard</a>
+                    <a href="/shop/admin/orders.html" class="hover:text-orange-300">Orders</a>
+                    <a href="/shop/admin/products.html" class="text-orange-300">Products</a>
+                    <a href="/shop/admin/inventory.html" class="hover:text-orange-300">Inventory</a>
+                    <a href="/shop/" class="bg-blue-600 px-3 py-1 rounded hover:bg-blue-500">Shop</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">
+                <i class="fas fa-box-open mr-2 text-orange-500"></i>Product Management
+            </h1>
+            <div class="flex space-x-3">
+                <button onclick="showBulkUpload()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
+                    <i class="fas fa-file-upload mr-2"></i>Bulk Upload
+                </button>
+                <button onclick="showAddProduct()" class="bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600">
+                    <i class="fas fa-plus mr-2"></i>Add Product
+                </button>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-lg shadow p-4 mb-6">
+            <div class="flex items-center space-x-4">
+                <input type="text" id="searchInput" placeholder="Search products..." 
+                    class="flex-1 border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                    onkeyup="filterProducts()">
+                <select id="categoryFilter" onchange="filterProducts()" class="border rounded-lg px-4 py-2">
+                    <option value="">All Categories</option>
+                    <option value="laptops">Laptops</option>
+                    <option value="phones">Phones</option>
+                    <option value="audio">Audio</option>
+                    <option value="accessories">Accessories</option>
+                    <option value="monitors">Monitors</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Products Table -->
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <div id="loading" class="text-center py-12">
+                <i class="fas fa-spinner fa-spin text-4xl text-orange-500"></i>
+                <p class="mt-2 text-gray-600">Loading products...</p>
+            </div>
+            <table id="productsTable" class="w-full hidden">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="productsBody" class="divide-y divide-gray-200"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add/Edit Product Modal -->
+    <div id="productModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b">
+                <div class="flex justify-between items-center">
+                    <h2 id="modalTitle" class="text-2xl font-bold">Add Product</h2>
+                    <button onclick="closeModal('productModal')" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                </div>
+            </div>
+            <form id="productForm" class="p-6 space-y-4">
+                <input type="hidden" id="editProductId">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-1">SKU *</label>
+                        <input type="text" id="productSku" required
+                            class="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-1">Title *</label>
+                        <input type="text" id="productTitle" required
+                            class="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-1">Brand *</label>
+                        <input type="text" id="productBrand" required
+                            class="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-1">Category *</label>
+                        <select id="productCategory" required class="w-full border rounded-lg px-4 py-2">
+                            <option value="laptops">Laptops</option>
+                            <option value="phones">Phones</option>
+                            <option value="audio">Audio</option>
+                            <option value="accessories">Accessories</option>
+                            <option value="monitors">Monitors</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-1">Price (INR) *</label>
+                        <input type="number" id="productPrice" required min="0"
+                            class="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-1">Rating</label>
+                        <input type="number" id="productRating" min="0" max="5" step="0.1" value="4.0"
+                            class="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-1">Description</label>
+                    <textarea id="productDescription" rows="3"
+                        class="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-orange-500"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="closeModal('productModal')"
+                        class="px-6 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
+                    <button type="submit"
+                        class="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">Save Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bulk Upload Modal -->
+    <div id="bulkModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-2xl font-bold">Bulk Upload Products</h2>
+                    <button onclick="closeModal('bulkModal')" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                </div>
+            </div>
+            <div class="p-6">
+                <!-- Upload Options -->
+                <div class="flex space-x-4 mb-6">
+                    <button onclick="showUploadTab('json')" id="tabJson" class="px-4 py-2 bg-orange-500 text-white rounded-lg">
+                        JSON Upload
+                    </button>
+                    <button onclick="showUploadTab('csv')" id="tabCsv" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        CSV Upload
+                    </button>
+                    <button onclick="showUploadTab('manual')" id="tabManual" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                        Paste Data
+                    </button>
+                </div>
+
+                <!-- JSON Tab -->
+                <div id="jsonTab">
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4">
+                        <i class="fas fa-file-upload text-4xl text-gray-400 mb-4"></i>
+                        <p class="text-gray-600 mb-4">Drag & drop JSON file here or click to browse</p>
+                        <input type="file" id="jsonFile" accept=".json" class="hidden" onchange="handleFileSelect(event, 'json')">
+                        <button onclick="document.getElementById('jsonFile').click()" 
+                            class="bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600">
+                            Select JSON File
+                        </button>
+                    </div>
+                    <div class="text-sm text-gray-500 mb-4">
+                        <p class="font-semibold">Expected format:</p>
+                        <pre class="bg-gray-100 p-2 rounded mt-1 text-xs overflow-x-auto">[
+  {"sku": "SKU001", "title": "Product Name", "brand": "Brand", "category": "laptops", "price_inr": 50000, "rating": 4.5, "description": "..."}
+]</pre>
+                    </div>
+                </div>
+
+                <!-- CSV Tab -->
+                <div id="csvTab" class="hidden">
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4">
+                        <i class="fas fa-file-csv text-4xl text-gray-400 mb-4"></i>
+                        <p class="text-gray-600 mb-4">Drag & drop CSV file here or click to browse</p>
+                        <input type="file" id="csvFile" accept=".csv" class="hidden" onchange="handleFileSelect(event, 'csv')">
+                        <button onclick="document.getElementById('csvFile').click()" 
+                            class="bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600">
+                            Select CSV File
+                        </button>
+                    </div>
+                    <div class="text-sm text-gray-500 mb-4">
+                        <p class="font-semibold">Expected columns:</p>
+                        <pre class="bg-gray-100 p-2 rounded mt-1 text-xs">sku,title,brand,category,price_inr,rating,description,qty_available</pre>
+                    </div>
+                </div>
+
+                <!-- Manual Tab -->
+                <div id="manualTab" class="hidden">
+                    <textarea id="manualData" rows="10" placeholder='Paste JSON array here...'
+                        class="w-full border rounded-lg px-4 py-2 font-mono text-sm"></textarea>
+                </div>
+
+                <!-- Preview Area -->
+                <div id="previewArea" class="hidden mt-4">
+                    <h3 class="font-semibold mb-2">Preview (<span id="previewCount">0</span> products)</h3>
+                    <div id="previewTable" class="max-h-48 overflow-y-auto border rounded"></div>
+                </div>
+
+                <!-- Upload Button -->
+                <div id="uploadResult" class="hidden mt-4 p-4 rounded-lg"></div>
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button onclick="closeModal('bulkModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-100">Cancel</button>
+                    <button onclick="submitBulkUpload()" id="uploadBtn"
+                        class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50">
+                        <i class="fas fa-upload mr-2"></i>Upload Products
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        let allProducts = [];
+        let bulkProducts = [];
+
+        async function loadProducts() {
+            try {
+                const response = await fetch(`${API_BASE}/admin/products?limit=200`);
+                const data = await response.json();
+                allProducts = data.products || [];
+                renderProducts(allProducts);
+            } catch (error) {
+                console.error('Error loading products:', error);
+            }
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('productsTable').classList.remove('hidden');
+        }
+
+        function renderProducts(products) {
+            const tbody = document.getElementById('productsBody');
+            if (products.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-12 text-center text-gray-500">No products found</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = products.map(p => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                        <div class="font-medium text-gray-900">${p.title}</div>
+                        <div class="text-sm text-gray-500">${p.brand}</div>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-sm">${p.sku}</td>
+                    <td class="px-6 py-4">
+                        <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">${p.category}</span>
+                    </td>
+                    <td class="px-6 py-4 font-semibold">Rs ${p.price_inr.toLocaleString()}</td>
+                    <td class="px-6 py-4">
+                        <span class="text-yellow-500">${'★'.repeat(Math.round(p.rating))}</span>
+                        <span class="text-sm text-gray-500 ml-1">${p.rating}</span>
+                    </td>
+                    <td class="px-6 py-4 text-right space-x-2">
+                        <button onclick="editProduct('${p.id}')" class="text-blue-600 hover:text-blue-800">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button onclick="deleteProduct('${p.id}', '${p.title.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-800">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function filterProducts() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const category = document.getElementById('categoryFilter').value;
+            
+            let filtered = allProducts;
+            if (search) {
+                filtered = filtered.filter(p => 
+                    p.title.toLowerCase().includes(search) || 
+                    p.brand.toLowerCase().includes(search) ||
+                    p.sku.toLowerCase().includes(search)
+                );
+            }
+            if (category) {
+                filtered = filtered.filter(p => p.category === category);
+            }
+            renderProducts(filtered);
+        }
+
+        function showAddProduct() {
+            document.getElementById('modalTitle').textContent = 'Add Product';
+            document.getElementById('editProductId').value = '';
+            document.getElementById('productForm').reset();
+            document.getElementById('productModal').classList.remove('hidden');
+        }
+
+        async function editProduct(productId) {
+            try {
+                const response = await fetch(`${API_BASE}/products/${productId}`);
+                const product = await response.json();
+                
+                document.getElementById('modalTitle').textContent = 'Edit Product';
+                document.getElementById('editProductId').value = productId;
+                document.getElementById('productSku').value = product.sku;
+                document.getElementById('productTitle').value = product.title;
+                document.getElementById('productBrand').value = product.brand;
+                document.getElementById('productCategory').value = product.category;
+                document.getElementById('productPrice').value = product.price_inr;
+                document.getElementById('productRating').value = product.rating;
+                document.getElementById('productDescription').value = product.description || '';
+                
+                document.getElementById('productModal').classList.remove('hidden');
+            } catch (error) {
+                alert('Error loading product details');
+            }
+        }
+
+        document.getElementById('productForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const productId = document.getElementById('editProductId').value;
+            const data = {
+                sku: document.getElementById('productSku').value,
+                title: document.getElementById('productTitle').value,
+                brand: document.getElementById('productBrand').value,
+                category: document.getElementById('productCategory').value,
+                price_inr: parseInt(document.getElementById('productPrice').value),
+                rating: parseFloat(document.getElementById('productRating').value) || 4.0,
+                description: document.getElementById('productDescription').value,
+            };
+
+            try {
+                let response;
+                if (productId) {
+                    response = await fetch(`${API_BASE}/admin/products/${productId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    response = await fetch(`${API_BASE}/admin/products`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                }
+
+                if (response.ok) {
+                    closeModal('productModal');
+                    loadProducts();
+                } else {
+                    const err = await response.json();
+                    alert(err.detail || 'Error saving product');
+                }
+            } catch (error) {
+                alert('Error saving product');
+            }
+        });
+
+        async function deleteProduct(productId, title) {
+            if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/admin/products/${productId}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    loadProducts();
+                } else {
+                    alert('Error deleting product');
+                }
+            } catch (error) {
+                alert('Error deleting product');
+            }
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+        }
+
+        function showBulkUpload() {
+            bulkProducts = [];
+            document.getElementById('previewArea').classList.add('hidden');
+            document.getElementById('uploadResult').classList.add('hidden');
+            document.getElementById('bulkModal').classList.remove('hidden');
+        }
+
+        function showUploadTab(tab) {
+            ['json', 'csv', 'manual'].forEach(t => {
+                document.getElementById(t + 'Tab').classList.toggle('hidden', t !== tab);
+                document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1))
+                    .classList.toggle('bg-orange-500', t === tab);
+                document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1))
+                    .classList.toggle('text-white', t === tab);
+                document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1))
+                    .classList.toggle('bg-gray-200', t !== tab);
+            });
+        }
+
+        function handleFileSelect(event, type) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    if (type === 'json') {
+                        bulkProducts = JSON.parse(e.target.result);
+                    } else if (type === 'csv') {
+                        bulkProducts = parseCSV(e.target.result);
+                    }
+                    showPreview();
+                } catch (error) {
+                    alert('Error parsing file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            return lines.slice(1).map(line => {
+                const values = line.split(',');
+                const obj = {};
+                headers.forEach((h, i) => {
+                    obj[h] = values[i]?.trim() || '';
+                });
+                obj.price_inr = parseInt(obj.price_inr) || 0;
+                obj.rating = parseFloat(obj.rating) || 4.0;
+                obj.qty_available = parseInt(obj.qty_available) || 0;
+                return obj;
+            });
+        }
+
+        function showPreview() {
+            document.getElementById('previewCount').textContent = bulkProducts.length;
+            document.getElementById('previewTable').innerHTML = `
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="px-2 py-1 text-left">SKU</th>
+                            <th class="px-2 py-1 text-left">Title</th>
+                            <th class="px-2 py-1 text-left">Brand</th>
+                            <th class="px-2 py-1 text-left">Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${bulkProducts.slice(0, 5).map(p => `
+                            <tr>
+                                <td class="px-2 py-1">${p.sku}</td>
+                                <td class="px-2 py-1">${p.title}</td>
+                                <td class="px-2 py-1">${p.brand}</td>
+                                <td class="px-2 py-1">Rs ${p.price_inr}</td>
+                            </tr>
+                        `).join('')}
+                        ${bulkProducts.length > 5 ? `<tr><td colspan="4" class="px-2 py-1 text-gray-500">...and ${bulkProducts.length - 5} more</td></tr>` : ''}
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('previewArea').classList.remove('hidden');
+        }
+
+        async function submitBulkUpload() {
+            if (bulkProducts.length === 0) {
+                const manualData = document.getElementById('manualData').value;
+                if (manualData) {
+                    try {
+                        bulkProducts = JSON.parse(manualData);
+                    } catch (e) {
+                        alert('Invalid JSON data');
+                        return;
+                    }
+                }
+            }
+
+            if (bulkProducts.length === 0) {
+                alert('No products to upload');
+                return;
+            }
+
+            const btn = document.getElementById('uploadBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Uploading...';
+
+            try {
+                const response = await fetch(`${API_BASE}/admin/products/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ products: bulkProducts })
+                });
+
+                const result = await response.json();
+                const resultDiv = document.getElementById('uploadResult');
+                resultDiv.classList.remove('hidden', 'bg-green-100', 'bg-red-100');
+                
+                if (response.ok) {
+                    resultDiv.classList.add('bg-green-100');
+                    resultDiv.innerHTML = `
+                        <div class="text-green-700">
+                            <i class="fas fa-check-circle mr-2"></i>
+                            <strong>Upload Complete!</strong>
+                            <ul class="mt-2 ml-6 list-disc">
+                                <li>Created: ${result.created}</li>
+                                <li>Updated: ${result.updated}</li>
+                                ${result.errors?.length ? `<li>Errors: ${result.errors.length}</li>` : ''}
+                            </ul>
+                        </div>
+                    `;
+                    loadProducts();
+                } else {
+                    resultDiv.classList.add('bg-red-100');
+                    resultDiv.innerHTML = `<div class="text-red-700"><i class="fas fa-times-circle mr-2"></i>${result.detail || 'Upload failed'}</div>`;
+                }
+            } catch (error) {
+                alert('Error uploading products');
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-upload mr-2"></i>Upload Products';
+        }
+
+        document.addEventListener('DOMContentLoaded', loadProducts);
+    </script>
+</body>
+</html>

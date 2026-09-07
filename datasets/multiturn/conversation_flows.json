@@ -1,0 +1,178 @@
+{
+  "name": "conversation_flows",
+  "kind": "multiturn",
+  "version": "1",
+  "description": "Multi-turn conversation evaluation - tests context retention and conversation coherence",
+  "items": [
+    {
+      "id": "mt-order-followup",
+      "category": "multiturn/order_context",
+      "difficulty": "medium",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "Where is my order OR-20001?"},
+          {"role": "user", "text": "Can I cancel it?"},
+          {"role": "user", "text": "What about a refund instead?"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "context_retention": ["OR-20001"],
+        "tools_per_turn": [
+          ["get_order", "get_shipment"],
+          ["cancel_order"],
+          ["get_payment", "check_return_eligibility"]
+        ],
+        "no_repeated_lookups": true
+      }
+    },
+    {
+      "id": "mt-pronoun-resolution",
+      "category": "multiturn/coreference",
+      "difficulty": "hard",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "Show me laptops under 80000"},
+          {"role": "user", "text": "What's the warranty on the first one?"},
+          {"role": "user", "text": "Add it to my cart"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "context_retention": ["laptop", "first"],
+        "pronoun_resolved": ["it", "the first one"],
+        "tools_per_turn": [
+          ["search_products"],
+          ["get_product"],
+          ["add_to_cart"]
+        ]
+      }
+    },
+    {
+      "id": "mt-policy-clarification",
+      "category": "multiturn/clarification",
+      "difficulty": "medium",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "What's your return policy?"},
+          {"role": "user", "text": "What about electronics specifically?"},
+          {"role": "user", "text": "Does that include headphones?"}
+        ],
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "context_retention": ["return", "electronics"],
+        "answer_progression": [
+          {"turn": 1, "contains": ["return"]},
+          {"turn": 2, "contains": ["10 days", "electronics"]},
+          {"turn": 3, "contains": ["audio", "6-month"]}
+        ]
+      }
+    },
+    {
+      "id": "mt-correction-handling",
+      "category": "multiturn/correction",
+      "difficulty": "hard",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "Check order OR-20001"},
+          {"role": "user", "text": "Sorry I meant OR-20002"},
+          {"role": "user", "text": "Yes, that one. What's its status?"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "context_retention": ["OR-20002"],
+        "correction_acknowledged": true,
+        "final_context": {"order_id": "OR-20002"}
+      }
+    },
+    {
+      "id": "mt-topic-switch",
+      "category": "multiturn/topic_change",
+      "difficulty": "medium",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "What's the return policy for electronics?"},
+          {"role": "user", "text": "Actually, show me my recent orders instead"},
+          {"role": "user", "text": "What's the status of the first one?"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "topic_switch_detected": true,
+        "new_context_established": true,
+        "tools_per_turn": [
+          [],
+          ["get_orders"],
+          ["get_order", "get_shipment"]
+        ]
+      }
+    },
+    {
+      "id": "mt-negation-understanding",
+      "category": "multiturn/negation",
+      "difficulty": "hard",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "I want to return my laptop"},
+          {"role": "user", "text": "Actually no, I changed my mind"},
+          {"role": "user", "text": "But can you tell me the warranty coverage?"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "negation_respected": true,
+        "no_action_after_cancel": ["create_return"],
+        "final_topic": "warranty"
+      }
+    },
+    {
+      "id": "mt-multi-entity",
+      "category": "multiturn/multi_entity",
+      "difficulty": "hard",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "Show me phones and laptops under 50000"},
+          {"role": "user", "text": "Compare the top phone with the top laptop"},
+          {"role": "user", "text": "Which one has better warranty?"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "entities_tracked": ["phone", "laptop"],
+        "comparison_valid": true,
+        "tools_per_turn": [
+          ["search_products"],
+          ["compare_products"],
+          ["get_product"]
+        ]
+      }
+    },
+    {
+      "id": "mt-memory-persistence",
+      "category": "multiturn/memory",
+      "difficulty": "medium",
+      "input": {
+        "turns": [
+          {"role": "user", "text": "I prefer free shipping"},
+          {"role": "user", "text": "Show me laptops"},
+          {"role": "user", "text": "Which ones qualify for free shipping?"}
+        ],
+        "mode": "agent",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "preference_remembered": ["free shipping"],
+        "preference_applied": true
+      }
+    }
+  ]
+}

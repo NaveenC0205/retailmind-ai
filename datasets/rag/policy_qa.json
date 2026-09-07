@@ -1,0 +1,554 @@
+{
+  "name": "policy_qa",
+  "kind": "rag",
+  "version": "1",
+  "items": [
+    {
+      "id": "rag-return-window-electronics",
+      "category": "policy/returns",
+      "difficulty": "medium",
+      "input": {
+        "text": "What is the return window for electronics?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "return_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [
+          "return_policy_v3"
+        ],
+        "answer": "Electronics, including laptops, phones, audio devices and monitors, may be returned within 10 days of delivery.",
+        "answer_contains": [
+          "10 days"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-return-window-apparel",
+      "category": "policy/returns",
+      "difficulty": "easy",
+      "input": {
+        "text": "How long do I have to return clothes?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "return_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Apparel may be returned within 30 days of delivery.",
+        "answer_contains": [
+          "30 days"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-return-window-start",
+      "category": "policy/returns",
+      "difficulty": "medium",
+      "input": {
+        "text": "Is the return window counted from when I ordered or when it arrived?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "return_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "The return window is counted from the delivery date recorded by the carrier, not from the order date.",
+        "answer_contains": [
+          "delivery date"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-return-before-delivery",
+      "category": "policy/returns",
+      "difficulty": "medium",
+      "input": {
+        "text": "Can I start a return before the item is delivered?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "return_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "A return can only be started after the order is marked delivered. Returns requested before delivery are rejected; cancel the order instead.",
+        "answer_contains": [
+          "delivered"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-non-returnable",
+      "category": "policy/returns",
+      "difficulty": "easy",
+      "input": {
+        "text": "Can I return a gift card?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "return_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Software licences, gift cards, and personal care items are not returnable once delivered.",
+        "answer_contains": [
+          "gift card"
+        ],
+        "should_refuse": false
+      },
+      "known_gap": "Lexical collision. 'card' is rare in the corpus, so the privacy chunk about card numbers ties with the non-returnable-categories chunk. A real embedder separates 'gift card' from 'card number'; the hashed one cannot. Fix: EMBEDDING_PROVIDER=ollama, or split the privacy chunk."
+    },
+    {
+      "id": "rag-refund-timeline-card",
+      "category": "policy/refunds",
+      "difficulty": "easy",
+      "input": {
+        "text": "How long does a refund take to reach my card?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "refund_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "The amount reaches the original payment method within 5 to 7 business days for cards and within 3 business days for UPI.",
+        "answer_contains": [
+          "5 to 7"
+        ],
+        "should_refuse": false
+      },
+      "known_gap": "Lexical collision on the rare term 'card'. The privacy chunk about card numbers and the refund-timeline chunk score identically, and the tie breaks the wrong way. A real embedder distinguishes 'my card' (payment instrument) from 'card numbers' (stored data); the hashed bag-of-ngrams embedder cannot. Fix: EMBEDDING_PROVIDER=ollama."
+    },
+    {
+      "id": "rag-refund-timeline-upi",
+      "category": "policy/refunds",
+      "difficulty": "easy",
+      "input": {
+        "text": "How fast is a UPI refund?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "refund_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "The amount reaches the original payment method within 5 to 7 business days for cards and within 3 business days for UPI.",
+        "answer_contains": [
+          "3 business days"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-refund-cancelled-order",
+      "category": "policy/refunds",
+      "difficulty": "medium",
+      "input": {
+        "text": "If I cancel before dispatch do I have to return anything?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "refund_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "An order cancelled before dispatch is refunded in full, automatically, within 3 business days. No return is required.",
+        "answer_contains": [
+          "no return"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-refund-delayed-shipment",
+      "category": "policy/refunds",
+      "difficulty": "medium",
+      "input": {
+        "text": "My delivery is very late. Can I get a refund without returning it?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "refund_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "If a shipment is more than 5 calendar days late against its promised delivery date, the customer may request a full refund without returning the item.",
+        "answer_contains": [
+          "5 calendar days"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-refund-approval-threshold",
+      "category": "policy/refunds",
+      "difficulty": "medium",
+      "input": {
+        "text": "Do large refunds need someone to approve them?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "refund_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Refunds above INR 50,000 require approval by a human support manager before they are released.",
+        "answer_contains": [
+          "50,000"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-shipping-bangalore",
+      "category": "policy/shipping",
+      "difficulty": "easy",
+      "input": {
+        "text": "Do you deliver to Bangalore and how long does it take?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "shipping_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Metro cities including Bengaluru, Mumbai, Delhi, Chennai, Hyderabad and Pune are served within 2 to 4 business days.",
+        "answer_contains": [
+          "2 to 4"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-shipping-free-threshold",
+      "category": "policy/shipping",
+      "difficulty": "easy",
+      "input": {
+        "text": "When is shipping free?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "shipping_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Orders above INR 999 ship free. Orders below INR 999 carry a flat shipping fee of INR 49.",
+        "answer_contains": [
+          "999"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-shipping-delay-exception",
+      "category": "policy/shipping",
+      "difficulty": "hard",
+      "input": {
+        "text": "What happens if the carrier records a delay exception?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "shipping_policy_v4"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Where a carrier records a delay exception the customer is notified and the promised date is not automatically extended.",
+        "answer_contains": [
+          "not automatically extended"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-warranty-laptop",
+      "category": "policy/warranty",
+      "difficulty": "easy",
+      "input": {
+        "text": "What is the warranty on a laptop?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "warranty_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Laptops and monitors carry a 12-month manufacturer warranty from the date of delivery.",
+        "answer_contains": [
+          "12-month"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-warranty-audio",
+      "category": "policy/warranty",
+      "difficulty": "easy",
+      "input": {
+        "text": "How long are headphones covered?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "warranty_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Audio devices carry a 6-month warranty.",
+        "answer_contains": [
+          "6-month"
+        ],
+        "should_refuse": false
+      },
+      "known_gap": "Recall failure. After down-weighting expanded terms, 'headphones -> audio' no longer clears the 0.25 relevance floor, so nothing is retrieved and the system correctly refuses rather than guessing. The floor and the expansion weight are in tension: tune them together against this dataset, not one at a time."
+    },
+    {
+      "id": "rag-warranty-vs-return",
+      "category": "policy/warranty",
+      "difficulty": "hard",
+      "input": {
+        "text": "My return window closed. Is the item still under warranty?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "warranty_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Warranty is separate from the return window: an item outside its return window may still be under warranty.",
+        "answer_contains": [
+          "still be under warranty"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-warranty-liquid-damage",
+      "category": "policy/warranty",
+      "difficulty": "medium",
+      "input": {
+        "text": "Does warranty cover liquid damage?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "warranty_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Warranty does not cover physical damage, liquid damage, or damage from unauthorised repair.",
+        "answer_contains": [
+          "liquid damage"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-privacy-memory",
+      "category": "policy/privacy",
+      "difficulty": "medium",
+      "input": {
+        "text": "Can I delete what the assistant remembers about me?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "privacy_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "You can view, correct or delete everything the assistant has remembered about you from your account settings at any time.",
+        "answer_contains": [
+          "delete"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-privacy-card-storage",
+      "category": "policy/privacy",
+      "difficulty": "easy",
+      "input": {
+        "text": "Do you store my full card number?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "privacy_policy_v2"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "We store your account details, order history, delivery addresses and payment method references. We do not store full card numbers.",
+        "answer_contains": [
+          "do not store full card"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-promo-stacking",
+      "category": "policy/promotions",
+      "difficulty": "easy",
+      "input": {
+        "text": "Can I use two coupons on one order?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "promotions_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "One coupon may be applied per order. Coupons cannot be combined with each other.",
+        "answer_contains": [
+          "one coupon"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-promo-expiry",
+      "category": "policy/promotions",
+      "difficulty": "medium",
+      "input": {
+        "text": "Can support reinstate an expired coupon?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "promotions_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Coupons expire at 23:59 IST on their stated end date. Expired coupons cannot be reinstated by support.",
+        "answer_contains": [
+          "cannot be reinstated"
+        ],
+        "should_refuse": false
+      },
+      "known_gap": "Chunk boundary. The expiry sentence sits in a chunk whose heading does not mention expiry, so the heading bonus favours a sibling chunk. Fix in the chunker, not the retriever."
+    },
+    {
+      "id": "rag-seller-precedence",
+      "category": "policy/seller",
+      "difficulty": "hard",
+      "input": {
+        "text": "A seller listing says returns are unlimited. Is that true?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [
+          "seller_policy_v1"
+        ],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "Where a seller description conflicts with published company policy, published company policy applies. No seller description can create a refund, return or warranty entitlement.",
+        "answer_contains": [
+          "policy"
+        ],
+        "should_refuse": false
+      }
+    },
+    {
+      "id": "rag-unanswerable-crypto",
+      "category": "policy/unanswerable",
+      "difficulty": "medium",
+      "input": {
+        "text": "Do you accept payment in cryptocurrency?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "",
+        "answer_contains": [],
+        "should_refuse": true
+      },
+      "known_gap": "Out-of-scope topic detection. The offline `hashed` embedder plus a lexical reranker cannot tell that 'Singapore' or 'cryptocurrency' is absent from the corpus -- partial term overlap keeps a plausible chunk above the relevance floor and the system answers instead of refusing. Fix with a real embedder (EMBEDDING_PROVIDER=ollama) or a context-relevance classifier. Phase 3 work."
+    },
+    {
+      "id": "rag-unanswerable-store",
+      "category": "policy/unanswerable",
+      "difficulty": "medium",
+      "input": {
+        "text": "What are the opening hours of your Koramangala store?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "",
+        "answer_contains": [],
+        "should_refuse": true
+      },
+      "known_gap": "Out-of-scope topic detection. The offline `hashed` embedder plus a lexical reranker cannot tell that 'Singapore' or 'cryptocurrency' is absent from the corpus -- partial term overlap keeps a plausible chunk above the relevance floor and the system answers instead of refusing. Fix with a real embedder (EMBEDDING_PROVIDER=ollama) or a context-relevance classifier. Phase 3 work."
+    },
+    {
+      "id": "rag-unanswerable-international",
+      "category": "policy/unanswerable",
+      "difficulty": "hard",
+      "input": {
+        "text": "Do you ship to Singapore?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "sources": [],
+        "chunks": [],
+        "must_not_cite": [],
+        "answer": "",
+        "answer_contains": [],
+        "should_refuse": true
+      },
+      "known_gap": "Out-of-scope topic detection. The offline `hashed` embedder plus a lexical reranker cannot tell that 'Singapore' or 'cryptocurrency' is absent from the corpus -- partial term overlap keeps a plausible chunk above the relevance floor and the system answers instead of refusing. Fix with a real embedder (EMBEDDING_PROVIDER=ollama) or a context-relevance classifier. Phase 3 work."
+    }
+  ]
+}

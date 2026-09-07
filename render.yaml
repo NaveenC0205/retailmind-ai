@@ -1,0 +1,39 @@
+# Render blueprint. Push this repo to GitHub, then on render.com:
+#   New -> Blueprint -> pick the repo. It reads this file.
+#
+# The free instance spins down after ~15 minutes idle and takes roughly a
+# minute to wake. Fine for a portfolio link; annoying in a live interview, so
+# open the URL a few minutes before you share your screen.
+services:
+  - type: web
+    name: retailmind-ai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore          # closest to Bengaluru
+    healthCheckPath: /health
+    envVars:
+      - key: LLM_PROVIDER
+        value: mock            # switch to "openai" and add a key below
+      - key: EMBEDDING_PROVIDER
+        value: hashed
+      - key: PUBLIC_DEMO
+        value: "true"
+      - key: RATE_LIMIT_PER_MIN
+        value: "30"
+      - key: DAILY_REQUEST_LIMIT
+        value: "0"             # set a number once a real model is behind it
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:////data/retailmind.db
+      # Uncomment for a real model. NEVER commit the key -- set it in the
+      # Render dashboard, and set DAILY_REQUEST_LIMIT at the same time.
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # - key: OPENAI_BASE_URL
+      #   value: https://api.groq.com/openai/v1
+      # - key: OPENAI_MODEL
+      #   value: llama-3.3-70b-versatile
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1

@@ -1,0 +1,115 @@
+{
+  "name": "judge_groundedness",
+  "kind": "calibration",
+  "version": "1",
+  "items": [
+    {
+      "id": "cal-001",
+      "rubric": "groundedness",
+      "question": "What is the return window for electronics?",
+      "answer": "Electronics may be returned within 10 days of delivery.",
+      "context": "Electronics, including laptops, phones, audio devices and monitors, may be returned within 10 days of delivery.",
+      "reference": "Electronics, including laptops, phones, audio devices and monitors, may be returned within 10 days of delivery.",
+      "human_score": 5
+    },
+    {
+      "id": "cal-002",
+      "rubric": "groundedness",
+      "question": "What is the return window for electronics?",
+      "answer": "Electronics can be returned within 10 days, and you also get a 30-day grace period on request.",
+      "context": "Electronics may be returned within 10 days of delivery.",
+      "reference": "Electronics may be returned within 10 days of delivery.",
+      "human_score": 2
+    },
+    {
+      "id": "cal-003",
+      "rubric": "groundedness",
+      "question": "What is the return window for electronics?",
+      "answer": "You can return electronics any time within a year.",
+      "context": "Electronics may be returned within 10 days of delivery.",
+      "reference": "Electronics may be returned within 10 days of delivery.",
+      "human_score": 1
+    },
+    {
+      "id": "cal-004",
+      "rubric": "groundedness",
+      "question": "How long does a card refund take?",
+      "answer": "Card refunds reach you in 5 to 7 business days after the quality check.",
+      "context": "The amount reaches the original payment method within 5 to 7 business days for cards.",
+      "reference": "The amount reaches the original payment method within 5 to 7 business days for cards.",
+      "human_score": 5
+    },
+    {
+      "id": "cal-005",
+      "rubric": "groundedness",
+      "question": "How long does a card refund take?",
+      "answer": "Refunds are usually quick, typically under a week.",
+      "context": "The amount reaches the original payment method within 5 to 7 business days for cards.",
+      "reference": "The amount reaches the original payment method within 5 to 7 business days for cards.",
+      "human_score": 4
+    },
+    {
+      "id": "cal-006",
+      "rubric": "groundedness",
+      "question": "Is shipping free?",
+      "answer": "Shipping is free on orders above INR 999; below that there is a flat INR 49 fee.",
+      "context": "Orders above INR 999 ship free. Orders below INR 999 carry a flat shipping fee of INR 49.",
+      "reference": "Orders above INR 999 ship free. Orders below INR 999 carry a flat shipping fee of INR 49.",
+      "human_score": 5
+    },
+    {
+      "id": "cal-007",
+      "rubric": "groundedness",
+      "question": "Is shipping free?",
+      "answer": "Shipping is always free for gold tier customers.",
+      "context": "Orders above INR 999 ship free.",
+      "reference": "Orders above INR 999 ship free.",
+      "human_score": 1
+    },
+    {
+      "id": "cal-008",
+      "rubric": "groundedness",
+      "question": "Do you deliver to Singapore?",
+      "answer": "I don't have a policy document covering international delivery, so I won't guess.",
+      "context": "We deliver to all serviceable pincodes in India.",
+      "reference": "We deliver to all serviceable pincodes in India.",
+      "human_score": 5
+    },
+    {
+      "id": "cal-009",
+      "rubric": "groundedness",
+      "question": "What warranty is on a laptop?",
+      "answer": "Laptops carry a 12-month manufacturer warranty from the date of delivery.",
+      "context": "Laptops and monitors carry a 12-month manufacturer warranty from the date of delivery.",
+      "reference": "Laptops and monitors carry a 12-month manufacturer warranty from the date of delivery.",
+      "human_score": 5
+    },
+    {
+      "id": "cal-010",
+      "rubric": "groundedness",
+      "question": "What warranty is on a laptop?",
+      "answer": "Laptops have a 24-month warranty which can be extended for a fee.",
+      "context": "Laptops and monitors carry a 12-month manufacturer warranty.",
+      "reference": "Laptops and monitors carry a 12-month manufacturer warranty.",
+      "human_score": 1
+    },
+    {
+      "id": "cal-011",
+      "rubric": "groundedness",
+      "question": "Can I use two coupons?",
+      "answer": "No, one coupon per order, and coupons cannot be combined.",
+      "context": "One coupon may be applied per order. Coupons cannot be combined with each other.",
+      "reference": "One coupon may be applied per order. Coupons cannot be combined with each other.",
+      "human_score": 5
+    },
+    {
+      "id": "cal-012",
+      "rubric": "groundedness",
+      "question": "Can I use two coupons?",
+      "answer": "Usually one, but support can normally stack a second one for you.",
+      "context": "One coupon may be applied per order. Coupons cannot be combined with each other.",
+      "reference": "One coupon may be applied per order. Coupons cannot be combined with each other.",
+      "human_score": 2
+    }
+  ]
+}

@@ -1,0 +1,232 @@
+{
+  "name": "task_trajectories",
+  "kind": "agents",
+  "version": "1",
+  "items": [
+    {
+      "id": "ag-order-status",
+      "category": "orders/status",
+      "difficulty": "easy",
+      "input": {
+        "text": "Where is my order OR-20001?",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "get_order",
+          "get_shipment",
+          "track_shipment"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 8,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-order-list",
+      "category": "orders/status",
+      "difficulty": "easy",
+      "input": {
+        "text": "Show me my recent orders",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "get_orders"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 6,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-shopping-laptop-budget",
+      "category": "shopping/search",
+      "difficulty": "medium",
+      "input": {
+        "text": "Find me a laptop under 80000 suitable for software development and compare the best three",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "search_products",
+          "compare_products"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 8,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-shopping-phone",
+      "category": "shopping/search",
+      "difficulty": "easy",
+      "input": {
+        "text": "I'm looking for a phone under 40000",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "search_products"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 8,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-promotions",
+      "category": "promotions",
+      "difficulty": "easy",
+      "input": {
+        "text": "What discount offers are running right now?",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "get_active_promotions"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 6,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-cancel-unshipped",
+      "category": "orders/cancel",
+      "difficulty": "medium",
+      "input": {
+        "text": "Please cancel my order OR-20003",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "get_order",
+          "cancel_order"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 8,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-refund-status",
+      "category": "refunds",
+      "difficulty": "medium",
+      "input": {
+        "text": "Has my refund come through yet?",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "get_orders",
+          "get_payment",
+          "get_refund"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 8,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-delay-multiagent",
+      "category": "orders/delay",
+      "difficulty": "hard",
+      "input": {
+        "text": "My order is delayed. Check the shipment, tell me why it is delayed, check whether I can get a refund, and if appropriate create a support request.",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "get_orders",
+          "get_order",
+          "get_shipment",
+          "track_shipment",
+          "retrieve_policy",
+          "get_payment",
+          "check_return_eligibility",
+          "create_support_ticket"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 20,
+        "max_cost_inr": 1.0,
+        "subtasks": [
+          "order",
+          "policy",
+          "refund",
+          "support"
+        ]
+      }
+    },
+    {
+      "id": "ag-return-item",
+      "category": "returns",
+      "difficulty": "hard",
+      "input": {
+        "text": "I want to return the laptop I received last week, it isn't what I expected",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [
+          "retrieve_policy",
+          "get_orders",
+          "get_order",
+          "get_payment",
+          "check_return_eligibility",
+          "create_return"
+        ],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 20,
+        "max_cost_inr": 1.0,
+        "subtasks": [
+          "policy",
+          "order",
+          "refund"
+        ]
+      }
+    },
+    {
+      "id": "ag-policy-question",
+      "category": "policy",
+      "difficulty": "easy",
+      "input": {
+        "text": "What is your return policy for electronics?",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [],
+        "terminal_state": "completed",
+        "answer_contains": [
+          "10 days"
+        ],
+        "max_steps": 6,
+        "max_cost_inr": 1.0
+      }
+    },
+    {
+      "id": "ag-smalltalk",
+      "category": "chat",
+      "difficulty": "easy",
+      "input": {
+        "text": "hello, what can you do?",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "tools": [],
+        "terminal_state": "completed",
+        "answer_contains": [],
+        "max_steps": 4,
+        "max_cost_inr": 1.0
+      }
+    }
+  ]
+}

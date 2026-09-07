@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopZone: Online Shopping</title>
+    <link rel="stylesheet" href="/shop/amazon.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <div class="amz-hero">
+        <div class="amz-hero-banner">
+            <div style="text-align:center">
+                <div style="font-size:14px;opacity:.8;margin-bottom:8px">Great Indian Festival</div>
+                <div>Up to 60% off on Electronics</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="amz-container">
+        <div class="amz-panel">
+            <h2 class="amz-panel-title" id="section-title">Top picks for you</h2>
+            <div id="products-grid" class="amz-grid"></div>
+            <div id="loading" class="amz-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+        </div>
+
+        <div class="amz-panel">
+            <h2 class="amz-panel-title">Shop by category</h2>
+            <div class="amz-grid" id="category-grid">
+                <a href="/shop/?cat=laptops" class="amz-card" style="text-decoration:none;color:inherit">
+                    <div class="amz-card-img"><i class="fas fa-laptop"></i></div>
+                    <div class="amz-card-title">Laptops</div>
+                </a>
+                <a href="/shop/?cat=phones" class="amz-card" style="text-decoration:none;color:inherit">
+                    <div class="amz-card-img"><i class="fas fa-mobile-alt"></i></div>
+                    <div class="amz-card-title">Mobile Phones</div>
+                </a>
+                <a href="/shop/?cat=audio" class="amz-card" style="text-decoration:none;color:inherit">
+                    <div class="amz-card-img"><i class="fas fa-headphones"></i></div>
+                    <div class="amz-card-title">Audio & Headphones</div>
+                </a>
+                <a href="/shop/?cat=accessories" class="amz-card" style="text-decoration:none;color:inherit">
+                    <div class="amz-card-img"><i class="fas fa-keyboard"></i></div>
+                    <div class="amz-card-title">Accessories</div>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script>
+        let allProducts = [];
+
+        function renderProducts(products) {
+            const grid = document.getElementById('products-grid');
+            const loading = document.getElementById('loading');
+            loading.style.display = 'none';
+
+            if (!products.length) {
+                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666">No products found. Try another search.</p>';
+                return;
+            }
+
+            grid.innerHTML = products.map(p => `
+                <div class="amz-card">
+                    <a href="/shop/product.html?id=${p.id}">
+                        <div class="amz-card-img">
+                            <img src="${Shop.productImageUrl(p)}" alt="${p.title}">
+                        </div>
+                        <div class="amz-card-title">${p.title}</div>
+                    </a>
+                    <div>${Shop.stars(p.rating)} <span class="amz-rating-count">${Math.floor(Math.random()*500+50)}</span></div>
+                    <div>${Shop.formatPrice(p.price_inr)}</div>
+                    <div style="font-size:12px;color:#007600;margin:4px 0">FREE delivery</div>
+                    <button class="amz-btn amz-btn-yellow" onclick="Shop.addToCart('${p.id}','${p.title.replace(/'/g,"\\'")}',${p.price_inr})">Add to Cart</button>
+                    <button class="amz-btn amz-btn-orange" onclick="buyNow('${p.id}','${p.title.replace(/'/g,"\\'")}',${p.price_inr})">Buy Now</button>
+                </div>
+            `).join('');
+        }
+
+        function buyNow(id, title, price) {
+            Shop.addToCart(id, title, price);
+            window.location.href = '/shop/cart.html';
+        }
+
+        function applyFilters() {
+            const params = new URLSearchParams(window.location.search);
+            const q = (params.get('q') || '').toLowerCase();
+            const cat = params.get('cat') || '';
+            let filtered = allProducts;
+
+            if (cat && cat !== 'today') {
+                filtered = filtered.filter(p => p.category.toLowerCase().includes(cat));
+                document.getElementById('section-title').textContent =
+                    cat.charAt(0).toUpperCase() + cat.slice(1) + ' deals';
+            }
+            if (q) {
+                filtered = filtered.filter(p =>
+                    p.title.toLowerCase().includes(q) ||
+                    p.brand.toLowerCase().includes(q)
+                );
+                document.getElementById('section-title').textContent = `Results for "${params.get('q')}"`;
+            }
+            if (params.get('cat') === 'today') {
+                filtered = [...filtered].sort((a,b) => b.rating - a.rating).slice(0, 8);
+                document.getElementById('section-title').textContent = "Today's Deals";
+            }
+
+            const searchInput = document.getElementById('search-input');
+            if (searchInput && q) searchInput.value = params.get('q');
+            renderProducts(filtered);
+        }
+
+        async function init() {
+            Shop.mountLayout('home');
+            allProducts = await Shop.fetchProducts();
+            applyFilters();
+        }
+
+        init();
+    </script>
+</body>
+</html>

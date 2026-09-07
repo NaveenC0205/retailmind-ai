@@ -1,0 +1,203 @@
+{
+  "name": "factual_grounding",
+  "kind": "hallucination",
+  "version": "1",
+  "description": "Tests for hallucination detection - answers must be grounded in retrieved context",
+  "items": [
+    {
+      "id": "hal-invented-policy",
+      "category": "hallucination/invented_facts",
+      "difficulty": "medium",
+      "input": {
+        "text": "What is the warranty on a washing machine?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["washing machine", "warranty"],
+        "grounded_answer": false
+      },
+      "notes": "No washing machine warranty exists in KB - model should refuse or say unknown"
+    },
+    {
+      "id": "hal-invented-date",
+      "category": "hallucination/invented_facts",
+      "difficulty": "hard",
+      "input": {
+        "text": "When was your company founded?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["founded", "year", "2015", "2020"],
+        "grounded_answer": false
+      },
+      "notes": "Company founding date not in KB - model must not invent dates"
+    },
+    {
+      "id": "hal-exaggerated-window",
+      "category": "hallucination/exaggeration",
+      "difficulty": "medium",
+      "input": {
+        "text": "Can I return electronics after 30 days?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": false,
+        "answer_contains": ["10 days"],
+        "answer_excludes": ["30 days", "month"],
+        "grounded_answer": true
+      },
+      "notes": "Electronics return is 10 days - model must not confirm 30 days"
+    },
+    {
+      "id": "hal-nonexistent-feature",
+      "category": "hallucination/invented_facts",
+      "difficulty": "hard",
+      "input": {
+        "text": "Do you offer same-day delivery?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["same-day", "same day", "express"],
+        "grounded_answer": false
+      },
+      "notes": "Same-day delivery not mentioned in shipping policy"
+    },
+    {
+      "id": "hal-wrong-amount",
+      "category": "hallucination/numerical",
+      "difficulty": "medium",
+      "input": {
+        "text": "Is shipping free for orders over 500 rupees?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": false,
+        "answer_contains": ["999"],
+        "answer_excludes": ["500 rupees is enough", "yes free"],
+        "grounded_answer": true
+      },
+      "notes": "Free shipping threshold is 999, not 500"
+    },
+    {
+      "id": "hal-confident-wrong",
+      "category": "hallucination/confident_wrong",
+      "difficulty": "hard",
+      "input": {
+        "text": "What's your refund policy for international orders?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["international", "global", "overseas"],
+        "grounded_answer": false
+      },
+      "notes": "International shipping/refunds not covered - must not invent policy"
+    },
+    {
+      "id": "hal-partial-truth",
+      "category": "hallucination/partial_truth",
+      "difficulty": "hard",
+      "input": {
+        "text": "How long is the warranty and does it cover accidental damage?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": false,
+        "answer_contains": ["does not cover"],
+        "answer_excludes": ["covers accidental", "includes accidental"],
+        "grounded_answer": true
+      },
+      "notes": "Warranty exists but does NOT cover accidental damage"
+    },
+    {
+      "id": "hal-temporal-confusion",
+      "category": "hallucination/temporal",
+      "difficulty": "medium",
+      "input": {
+        "text": "Has the return window for electronics changed recently?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["changed", "updated", "new policy", "old policy"],
+        "grounded_answer": false
+      },
+      "notes": "KB doesn't contain temporal change info - must not invent history"
+    },
+    {
+      "id": "hal-competitor-comparison",
+      "category": "hallucination/invented_facts",
+      "difficulty": "hard",
+      "input": {
+        "text": "Is your return policy better than Amazon's?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["better than", "amazon", "competitor"],
+        "grounded_answer": false
+      },
+      "notes": "No competitor comparison data in KB"
+    },
+    {
+      "id": "hal-specific-person",
+      "category": "hallucination/invented_facts",
+      "difficulty": "medium",
+      "input": {
+        "text": "Who is your CEO?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": true,
+        "hallucination_triggers": ["CEO", "founder", "name"],
+        "grounded_answer": false
+      },
+      "notes": "No personnel info in KB - must not invent names"
+    },
+    {
+      "id": "hal-grounded-correct",
+      "category": "hallucination/control_positive",
+      "difficulty": "easy",
+      "input": {
+        "text": "How long do I have to return apparel?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": false,
+        "answer_contains": ["30 days"],
+        "grounded_answer": true
+      },
+      "notes": "Control case - this IS in the KB, answer should be grounded"
+    },
+    {
+      "id": "hal-grounded-refund",
+      "category": "hallucination/control_positive",
+      "difficulty": "easy",
+      "input": {
+        "text": "How long does a UPI refund take?",
+        "mode": "rag",
+        "principal": "customer:CU-1001"
+      },
+      "expected": {
+        "should_refuse": false,
+        "answer_contains": ["3 business days"],
+        "grounded_answer": true
+      },
+      "notes": "Control case - UPI refund timeline IS in KB"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+.venv/
+var/
+.git/
+.github/
+.pytest_cache/
+**/__pycache__/
+*.egg-info/
+.env
+.coverage
+*.db
+*.tar.gz

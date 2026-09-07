@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - ShopZone</title>
+    <link rel="stylesheet" href="/shop/amazon.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .role-tabs { display: flex; gap: 0; margin-bottom: 20px; border: 1px solid #d5d9d9; border-radius: 8px; overflow: hidden; }
+        .role-tab { flex: 1; padding: 12px 8px; border: none; background: #f0f2f2; cursor: pointer; font-size: 13px; font-weight: 600; color: #0f1111; }
+        .role-tab.active { background: #febd69; }
+        .role-tab:hover:not(.active) { background: #e3e6e6; }
+        .demo-box { background: #f7fafa; border: 1px solid #d5d9d9; border-radius: 4px; padding: 12px; margin-top: 16px; font-size: 12px; color: #0f1111; }
+        .demo-box code { background: #fff; border: 1px solid #ddd; padding: 1px 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <header class="amz-header">
+        <div class="amz-header-top" style="justify-content:center;padding:14px">
+            <a href="/shop/" class="amz-logo" style="font-size:28px">shop<span>Zone</span></a>
+        </div>
+    </header>
+
+    <div class="amz-login-wrap" id="login-panel">
+        <h1>Sign in</h1>
+
+        <div class="role-tabs">
+            <button type="button" class="role-tab active" id="tab-customer" onclick="setRole('customer')">
+                <i class="fas fa-user"></i> Customer Login
+            </button>
+            <button type="button" class="role-tab" id="tab-owner" onclick="setRole('owner')">
+                <i class="fas fa-store"></i> Shop Owner Login
+            </button>
+        </div>
+
+        <p id="role-hint" style="font-size:13px;color:#565959;margin:0 0 14px">Shop as a customer — browse, order, track deliveries.</p>
+
+        <form onsubmit="handleLogin(event)">
+            <label style="font-size:13px;font-weight:700">Email</label>
+            <input type="email" id="loginEmail" class="amz-input" required placeholder="customer@shopzone.in">
+            <label style="font-size:13px;font-weight:700">Password</label>
+            <input type="password" id="loginPassword" class="amz-input" required>
+            <div id="loginError" style="display:none;color:#c40000;font-size:13px;margin-bottom:12px"></div>
+            <button type="submit" class="amz-btn-full" id="loginBtn">Sign in</button>
+        </form>
+
+        <div class="demo-box" id="demo-creds">
+            <strong>Demo Customer</strong><br>
+            Email: <code>customer@shopzone.in</code><br>
+            Password: <code>customer123</code>
+        </div>
+
+        <div class="amz-divider" id="register-divider"><span>New to ShopZone?</span></div>
+        <button class="amz-btn-full" id="create-account-btn" style="background:#fff;border-color:#adb1b8" onclick="showRegister()">Create your ShopZone account</button>
+    </div>
+
+    <div class="amz-login-wrap" id="register-panel" style="display:none">
+        <h1>Create account</h1>
+        <p style="font-size:13px;color:#565959;margin:0 0 14px">Customer accounts only. Shop owners are provisioned by the platform.</p>
+        <form onsubmit="handleRegister(event)">
+            <label style="font-size:13px;font-weight:700">Your name</label>
+            <input type="text" id="registerName" class="amz-input" required>
+            <label style="font-size:13px;font-weight:700">Email</label>
+            <input type="email" id="registerEmail" class="amz-input" required>
+            <label style="font-size:13px;font-weight:700">Password</label>
+            <input type="password" id="registerPassword" class="amz-input" required minlength="6" placeholder="At least 6 characters">
+            <label style="font-size:13px;font-weight:700">Re-enter password</label>
+            <input type="password" id="registerConfirm" class="amz-input" required>
+            <div id="registerError" style="display:none;color:#c40000;font-size:13px;margin-bottom:12px"></div>
+            <button type="submit" class="amz-btn-full" id="registerBtn">Create your ShopZone account</button>
+        </form>
+        <div class="amz-divider"><span>Already have an account?</span></div>
+        <button class="amz-btn-full" style="background:#fff;border-color:#adb1b8" onclick="showLogin()">Sign in</button>
+    </div>
+
+    <footer style="text-align:center;padding:20px;font-size:12px;color:#555;border-top:1px solid #ddd;margin-top:26px">
+        © 2026 ShopZone. Conditions of Use · Privacy Notice
+    </footer>
+
+    <script>
+        let loginRole = 'customer';
+        const params = new URLSearchParams(window.location.search);
+        const redirect = params.get('redirect') || '';
+
+        if (localStorage.getItem('auth_token') && !params.get('force')) {
+            const isAdmin = localStorage.getItem('is_admin') === 'true';
+            window.location.href = redirect || (isAdmin ? '/shop/admin/' : '/shop/');
+        }
+        if (params.get('tab') === 'register') showRegister();
+        if (params.get('role') === 'owner') setRole('owner');
+
+        function setRole(role) {
+            loginRole = role;
+            document.getElementById('tab-customer').classList.toggle('active', role === 'customer');
+            document.getElementById('tab-owner').classList.toggle('active', role === 'owner');
+            const hint = document.getElementById('role-hint');
+            const demo = document.getElementById('demo-creds');
+            const email = document.getElementById('loginEmail');
+            const createBtn = document.getElementById('create-account-btn');
+            const divider = document.getElementById('register-divider');
+
+            if (role === 'owner') {
+                hint.textContent = 'Shop Owner — manage products, inventory, and orders.';
+                demo.innerHTML = `<strong>Demo Shop Owner</strong><br>Email: <code>owner@shopzone.in</code><br>Password: <code>owner123</code>`;
+                email.placeholder = 'owner@shopzone.in';
+                email.value = 'owner@shopzone.in';
+                document.getElementById('loginPassword').value = 'owner123';
+                createBtn.style.display = 'none';
+                divider.style.display = 'none';
+            } else {
+                hint.textContent = 'Shop as a customer — browse, order, track deliveries.';
+                demo.innerHTML = `<strong>Demo Customer</strong><br>Email: <code>customer@shopzone.in</code><br>Password: <code>customer123</code>`;
+                email.placeholder = 'customer@shopzone.in';
+                email.value = 'customer@shopzone.in';
+                document.getElementById('loginPassword').value = 'customer123';
+                createBtn.style.display = 'block';
+                divider.style.display = 'block';
+            }
+        }
+
+        // Prefill customer demo on load
+        setRole(loginRole);
+
+        function showRegister() {
+            document.getElementById('login-panel').style.display = 'none';
+            document.getElementById('register-panel').style.display = 'block';
+        }
+        function showLogin() {
+            document.getElementById('register-panel').style.display = 'none';
+            document.getElementById('login-panel').style.display = 'block';
+        }
+
+        function saveSession(data) {
+            localStorage.setItem('auth_token', data.access_token);
+            localStorage.setItem('customer_id', data.customer_id);
+            localStorage.setItem('customer_name', data.name);
+            localStorage.setItem('customer_email', data.email);
+            localStorage.setItem('is_admin', data.is_admin);
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const err = document.getElementById('loginError');
+            err.style.display = 'none';
+            const btn = document.getElementById('loginBtn');
+            btn.disabled = true; btn.textContent = 'Signing in...';
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('loginEmail').value,
+                        password: document.getElementById('loginPassword').value
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Login failed');
+
+                if (loginRole === 'owner' && !data.is_admin) {
+                    throw new Error('This account is not a Shop Owner. Use Customer Login instead.');
+                }
+                if (loginRole === 'customer' && data.is_admin) {
+                    throw new Error('This is a Shop Owner account. Switch to Shop Owner Login.');
+                }
+
+                saveSession(data);
+                if (redirect) {
+                    window.location.href = redirect;
+                } else if (data.is_admin) {
+                    window.location.href = '/shop/admin/';
+                } else {
+                    window.location.href = '/shop/';
+                }
+            } catch (e) {
+                err.textContent = e.message;
+                err.style.display = 'block';
+                btn.disabled = false; btn.textContent = 'Sign in';
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const err = document.getElementById('registerError');
+            err.style.display = 'none';
+            const pw = document.getElementById('registerPassword').value;
+            if (pw !== document.getElementById('registerConfirm').value) {
+                err.textContent = 'Passwords do not match';
+                err.style.display = 'block';
+                return;
+            }
+            const btn = document.getElementById('registerBtn');
+            btn.disabled = true; btn.textContent = 'Creating account...';
+
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('registerEmail').value,
+                        password: pw,
+                        name: document.getElementById('registerName').value
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Registration failed');
+                saveSession(data);
+                window.location.href = redirect || '/shop/';
+            } catch (e) {
+                err.textContent = e.message;
+                err.style.display = 'block';
+                btn.disabled = false; btn.textContent = 'Create your ShopZone account';
+            }
+        }
+    </script>
+</body>
+</html>

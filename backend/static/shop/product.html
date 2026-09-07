@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product - ShopZone</title>
+    <link rel="stylesheet" href="/shop/amazon.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <div class="amz-container">
+        <div id="loading" class="amz-loading"><i class="fas fa-spinner fa-spin"></i> Loading product...</div>
+        <div id="product-detail" class="amz-pdp" style="display:none"></div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const productId = params.get('id');
+
+        async function loadProduct() {
+            Shop.mountLayout('product');
+            if (!productId) {
+                window.location.href = '/shop/';
+                return;
+            }
+
+            try {
+                const p = await Shop.fetchProduct(productId);
+                document.title = p.title + ' - ShopZone';
+                document.getElementById('loading').style.display = 'none';
+                const el = document.getElementById('product-detail');
+                el.style.display = 'block';
+                el.innerHTML = `
+                    <div style="font-size:12px;color:#007185;margin-bottom:12px">
+                        <a href="/shop/">ShopZone</a> › ${p.category} › ${p.brand}
+                    </div>
+                    <div class="amz-pdp-grid">
+                        <div>
+                            <div class="amz-card-img" style="height:400px;background:#fff;border:1px solid #eee">
+                                <img src="${Shop.productImageUrl(p)}" alt="${p.title}" style="max-height:380px">
+                            </div>
+                        </div>
+                        <div>
+                            <h1 style="font-size:24px;font-weight:400;margin:0 0 8px">${p.title}</h1>
+                            <div style="margin-bottom:8px">Brand: <strong>${p.brand}</strong></div>
+                            <div style="margin-bottom:12px">${Shop.stars(p.rating)} <a href="#">${Math.floor(Math.random()*800+100)} ratings</a></div>
+                            <hr style="border:none;border-top:1px solid #e7e7e7;margin:16px 0">
+                            <div class="amz-pdp-price">₹${p.price_inr.toLocaleString('en-IN')}</div>
+                            <div style="font-size:14px;color:#007600;margin:8px 0">FREE delivery by tomorrow</div>
+                            <div style="font-size:14px;color:#007600">In stock</div>
+                            <div style="margin:16px 0">
+                                <label style="font-size:14px;margin-right:8px">Qty:</label>
+                                <select id="qty" class="amz-qty-select">
+                                    ${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}">${n}</option>`).join('')}
+                                </select>
+                            </div>
+                            <button class="amz-btn amz-btn-yellow" style="width:200px;border-radius:8px;margin-right:8px" onclick="addToCart()">Add to Cart</button>
+                            <button class="amz-btn amz-btn-orange" style="width:200px;border-radius:8px" onclick="buyNow()">Buy Now</button>
+                            <hr style="border:none;border-top:1px solid #e7e7e7;margin:20px 0">
+                            <h3 style="font-size:16px;margin:0 0 8px">About this item</h3>
+                            <ul class="amz-pdp-list">
+                                <li>Category: ${p.category}</li>
+                                <li>SKU: ${p.sku}</li>
+                                ${Object.entries(p.attributes || {}).map(([k,v]) => `<li>${k}: ${v}</li>`).join('')}
+                            </ul>
+                            ${p.description ? `<p style="font-size:14px;line-height:1.6;color:#333">${p.description}</p>` : ''}
+                        </div>
+                    </div>
+                `;
+                window._product = p;
+            } catch (e) {
+                document.getElementById('loading').innerHTML = 'Product not found. <a href="/shop/">Go back</a>';
+            }
+        }
+
+        function addToCart() {
+            const qty = parseInt(document.getElementById('qty').value) || 1;
+            Shop.addToCart(window._product.id, window._product.title, window._product.price_inr, qty);
+        }
+
+        function buyNow() {
+            addToCart();
+            window.location.href = '/shop/cart.html';
+        }
+
+        loadProduct();
+    </script>
+</body>
+</html>

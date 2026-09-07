@@ -1,0 +1,11 @@
+.venv/
+var/
+*.db
+.env
+.coverage
+.pytest_cache/
+**/__pycache__/
+*.egg-info/
+*.tar.gz
+node_modules/
+.DS_Store

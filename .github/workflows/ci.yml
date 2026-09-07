@@ -1,0 +1,53 @@
+# Three schedules, three execution tiers. The split is the whole point: the
+# fast deterministic tier gates every commit, the expensive stochastic tier
+# runs where its latency and cost are acceptable.
+name: ci
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  commit-tier:
+    name: mocked tier (every commit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[test]"
+      - run: python scripts/bootstrap.py
+
+      - name: Architecture conformance
+        run: pytest -m conformance -q
+
+      - name: Unit, API, integration, agents, RAG
+        run: pytest -m "unit or api or integration or agents or rag" -q
+
+      - name: Security and red team
+        run: pytest -m "security or adversarial" -q
+
+      - name: Evaluation framework
+        run: pytest -m evaluation -q
+
+  quality-gates:
+    name: quality gates (every PR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[test]"
+      - run: python scripts/bootstrap.py
+
+      # Each of these exits non-zero when a MERGE gate is breached.
+      - name: Golden regression set
+        run: python scripts/run_eval.py golden/regression --suite golden
+      - name: Attack corpus (compromised model)
+        run: python scripts/run_eval.py adversarial/attack_corpus --suite safety --provider mock-naive
+      - name: Benign corpus (false-positive rate)
+        run: python scripts/run_eval.py safety/benign_corpus --suite benign
+      - name: Agent trajectories
+        run: python scripts/run_eval.py agents/task_trajectories --suite agents
+      - name: Red-team report
+        run: python scripts/redteam.py

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopping Cart - ShopZone</title>
+    <link rel="stylesheet" href="/shop/amazon.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <div class="amz-container">
+        <h1 style="font-size:28px;font-weight:400;margin:16px 0">Shopping Cart</h1>
+
+        <div id="cart-empty" style="display:none;background:white;padding:40px;text-align:center">
+            <i class="fas fa-shopping-cart" style="font-size:48px;color:#ccc;margin-bottom:16px"></i>
+            <h2>Your ShopZone Cart is empty</h2>
+            <p style="color:#666">Shop today's deals</p>
+            <a href="/shop/" class="amz-btn amz-btn-yellow" style="display:inline-block;width:auto;padding:10px 40px;margin-top:16px;text-decoration:none;color:#111">Continue shopping</a>
+        </div>
+
+        <div id="cart-content" class="amz-cart-layout" style="display:none">
+            <div style="background:white;padding:20px">
+                <div id="cart-items"></div>
+            </div>
+            <div class="amz-subtotal-box">
+                <div style="font-size:18px;margin-bottom:12px">
+                    Subtotal (<span id="item-count">0</span> items): <strong id="subtotal">₹0</strong>
+                </div>
+                <button class="amz-btn amz-btn-yellow" style="border-radius:8px;padding:12px" onclick="proceedCheckout()">
+                    Proceed to Buy
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Checkout modal -->
+    <div id="checkout-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center">
+        <div style="background:white;padding:28px;border-radius:4px;max-width:420px;width:90%">
+            <h2 style="font-size:21px;font-weight:400;margin:0 0 20px">Place your order</h2>
+            <label style="font-size:14px;font-weight:700">Delivery address</label>
+            <textarea id="address" class="amz-input" rows="3" style="margin-top:4px">123 Main Street, Bangalore, Karnataka 560001</textarea>
+            <label style="font-size:14px;font-weight:700">Payment method</label>
+            <select id="payment" class="amz-input">
+                <option value="upi">UPI</option>
+                <option value="card">Credit/Debit Card</option>
+                <option value="cod">Cash on Delivery</option>
+            </select>
+            <div style="display:flex;gap:8px;margin-top:16px">
+                <button class="amz-btn" style="flex:1;background:#f0f2f2;border-color:#d5d9d9;border-radius:8px" onclick="closeCheckout()">Cancel</button>
+                <button class="amz-btn amz-btn-yellow" style="flex:1;border-radius:8px" id="place-order-btn" onclick="placeOrder()">Place your order</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script>
+        let cart = [];
+
+        function renderCart() {
+            cart = Shop.getCart();
+            const empty = document.getElementById('cart-empty');
+            const content = document.getElementById('cart-content');
+
+            if (!cart.length) {
+                empty.style.display = 'block';
+                content.style.display = 'none';
+                return;
+            }
+
+            empty.style.display = 'none';
+            content.style.display = 'grid';
+
+            document.getElementById('cart-items').innerHTML = cart.map(item => `
+                <div class="amz-cart-item">
+                    <div class="amz-card-img" style="height:120px"><i class="fas fa-box fa-3x" style="color:#ccc"></i></div>
+                    <div>
+                        <a href="/shop/product.html?id=${item.id}" style="font-size:18px;color:#007185;text-decoration:none">${item.title}</a>
+                        <div style="color:#007600;font-size:12px;margin:4px 0">In Stock</div>
+                        <div style="font-size:18px;margin:8px 0">₹${item.price.toLocaleString('en-IN')}</div>
+                        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+                            <label style="font-size:12px">Qty:
+                                <select onchange="updateQty('${item.id}', this.value)" class="amz-qty-select" style="margin-left:4px">
+                                    ${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}" ${n===item.qty?'selected':''}>${n}</option>`).join('')}
+                                </select>
+                            </label>
+                            <button onclick="removeItem('${item.id}')" style="background:none;border:none;color:#007185;font-size:12px;cursor:pointer">Delete</button>
+                        </div>
+                    </div>
+                    <div style="font-size:18px;font-weight:700">₹${(item.price * item.qty).toLocaleString('en-IN')}</div>
+                </div>
+            `).join('');
+
+            const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+            document.getElementById('subtotal').textContent = '₹' + subtotal.toLocaleString('en-IN');
+            document.getElementById('item-count').textContent = cart.reduce((s, i) => s + i.qty, 0);
+        }
+
+        function updateQty(id, qty) {
+            cart = Shop.getCart();
+            const item = cart.find(i => i.id === id);
+            if (item) { item.qty = parseInt(qty); Shop.saveCart(cart); renderCart(); }
+        }
+
+        function removeItem(id) {
+            Shop.saveCart(Shop.getCart().filter(i => i.id !== id));
+            renderCart();
+        }
+
+        function proceedCheckout() {
+            if (!Shop.isLoggedIn()) {
+                if (confirm('Sign in to place your order?')) {
+                    window.location.href = '/shop/login.html?redirect=/shop/cart.html';
+                }
+                return;
+            }
+            document.getElementById('checkout-modal').style.display = 'flex';
+        }
+
+        function closeCheckout() {
+            document.getElementById('checkout-modal').style.display = 'none';
+        }
+
+        async function placeOrder() {
+            const btn = document.getElementById('place-order-btn');
+            btn.disabled = true;
+            btn.textContent = 'Placing order...';
+
+            try {
+                const res = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: Shop.getAuthHeaders(true),
+                    body: JSON.stringify({
+                        items: cart.map(i => ({ product_id: i.id, qty: i.qty, unit_price_inr: i.price })),
+                        address: document.getElementById('address').value,
+                        payment_method: document.getElementById('payment').value
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Order failed');
+
+                Shop.saveCart([]);
+                closeCheckout();
+                window.location.href = '/shop/orders.html?placed=' + data.order_id;
+            } catch (e) {
+                alert('Error: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Place your order';
+            }
+        }
+
+        Shop.mountLayout('cart');
+        renderCart();
+    </script>
+</body>
+</html>

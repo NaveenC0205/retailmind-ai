@@ -1,0 +1,103 @@
+# Optional. The default `local` profile runs the whole platform on SQLite with
+# in-process retrieval and needs none of this. Bring this up when you want the
+# production-shaped stack: Postgres+pgvector, Redis, OpenSearch, Kafka, OTel.
+#
+#   make up        core services
+#   make up-obs    core + observability
+#
+# Then set in .env:
+#   PROFILE=docker
+#   DATABASE_URL=postgresql+asyncpg://retailmind:retailmind@localhost:5432/retailmind
+
+name: retailmind
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: [core]
+    environment:
+      POSTGRES_USER: retailmind
+      POSTGRES_PASSWORD: retailmind
+      POSTGRES_DB: retailmind
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retailmind"]
+      interval: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    profiles: [core]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 12
+
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    profiles: [core]
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ports: ["9200:9200"]
+
+  redpanda:
+    image: redpandadata/redpanda:v24.1.7
+    profiles: [core]
+    command:
+      - redpanda start --overprovisioned --smp 1 --memory 512M
+        --kafka-addr PLAINTEXT://0.0.0.0:9092
+        --advertise-kafka-addr PLAINTEXT://localhost:9092
+    ports: ["9092:9092"]
+
+  # The most important service in this file for testing purposes: a local LLM
+  # that returns fixed completions by request hash and can be told to inject a
+  # timeout, a 500, malformed JSON or an unparseable tool call. It turns "test
+  # the agent's error handling" from a stochastic exercise into a deterministic
+  # one. In the local profile the same behaviour is in-process (app/llm/mock.py).
+  llm-mock:
+    image: python:3.12-slim
+    profiles: [test]
+    working_dir: /srv
+    volumes: ["../backend:/srv"]
+    command: python -m app.llm.mock_server
+    ports: ["8080:8080"]
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    profiles: [chaos]
+    ports: ["8474:8474", "15432:15432", "16379:16379"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    profiles: [obs]
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes: ["./otel/config.yaml:/etc/otel/config.yaml:ro"]
+    ports: ["4317:4317", "4318:4318"]
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    profiles: [obs]
+    volumes: ["./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    profiles: [obs]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    ports: ["3001:3000"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    profiles: [obs]
+    ports: ["16686:16686"]
+
+volumes:
+  pgdata:

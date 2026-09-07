@@ -1,0 +1,12 @@
+# Runtime dependencies, pinned to minimums. Kept alongside pyproject.toml so
+# the Docker layer cache only invalidates when a dependency actually changes,
+# not on every source edit.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+pydantic-settings>=2.2
+sqlalchemy[asyncio]>=2.0.25
+aiosqlite>=0.19
+httpx>=0.26
+numpy>=1.24
+python-multipart>=0.0.9
