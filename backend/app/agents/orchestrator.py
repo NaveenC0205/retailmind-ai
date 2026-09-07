@@ -341,7 +341,10 @@ class Orchestrator:
             # 2 -- dispatch
             # The storefront always sends multi_agent. Greetings and open chat
             # should talk like a real assistant, not spin a specialist graph.
-            if intent == "smalltalk" and self.persona != "owner":
+            simple_orders = await self._guided_my_orders(route_text, facts, intent, event_sink)
+            if simple_orders:
+                result = simple_orders
+            elif intent == "smalltalk" and self.persona != "owner":
                 result = await self._run_chat(clean_text, facts)
             elif resolved_mode == "chat":
                 result = await self._run_chat(clean_text, facts)
@@ -403,8 +406,22 @@ class Orchestrator:
             Provenance.SYSTEM,
             "The shopper may misspell, skip letters, or mix Hindi/English. "
             "Infer what they meant and reply naturally, like ChatGPT — not a keyword bot. "
+            "Reply in the language they used: English in → English out. Only use Hindi or Hinglish if they did. "
             "If they asked about products, offer to search the catalogue.",
         )
+        if facts.get("logged_in"):
+            context.add(
+                Provenance.SYSTEM,
+                "This shopper is already signed in. Never ask them to sign in. "
+                "If they want their orders or payment status, tell them you can look that up "
+                "(the order specialist handles it on the next turn if you cannot).",
+            )
+        else:
+            context.add(
+                Provenance.SYSTEM,
+                "This shopper is a guest. Catalogue search is fine. If they ask for THEIR orders, "
+                "say they need to sign in — in English unless they wrote in Hindi.",
+            )
         if facts.get("understood_query") and facts.get("query_rewritten"):
             context.add(
                 Provenance.SYSTEM,
@@ -734,6 +751,8 @@ class Orchestrator:
             buy = f"Buy {pick} with UPI" if logged else "Sign in to place an order"
             return [buy, f"What's the warranty on {pick}?", "Compare with similar products"]
         if intent in {"order_status", "order_list"}:
+            if not logged:
+                return ["Sign in to place an order", "Search for iPhone and give me the prices", "What is the return policy?"]
             return ["What payment was used on my latest order?", "Cancel my latest unshipped order", "What is the return policy?"]
         if intent == "policy":
             return ["Laptops under 80000", "Show my recent orders" if logged else "Sign in to place an order", "What payment methods can I use?"]
@@ -771,6 +790,117 @@ class Orchestrator:
                 if 2 < len(title) < 80:
                     return title
         return ""
+
+    def _is_simple_order_list(self, text: str, intent: str) -> bool:
+        """True for 'check/show my orders' — not tracking, returns, checkout, or combos."""
+        if self.persona == "owner":
+            return False
+        low = (text or "").lower()
+        if any(
+            k in low
+            for k in (
+                "cancel", "return", "refund", "promo", "discount", "coupon",
+                "policy", "place order", "buy ", "track", "where is",
+                "shipment", "awb",
+            )
+        ):
+            return False
+        if intent == "order_list":
+            return True
+        return any(
+            k in low
+            for k in (
+                "check order", "check orders", "show order", "show orders",
+                "see order", "see orders", "list order", "my orders",
+                "order history", "all my order", "irders",
+            )
+        )
+
+    async def _guided_my_orders(self, text: str, facts: dict, intent: str, event_sink=None):
+        """Logged-in order list without a live-model detour that asks guests to sign in."""
+        if not self._is_simple_order_list(text, intent):
+            return None
+
+        await self._notify(
+            event_sink,
+            {"type": "agent_start", "agent": "order", "task": "list orders", "framework": "order-ops"},
+        )
+        facts["intent"] = "order_list"
+        cid = self.principal.customer_id or ""
+        logged = bool(facts.get("logged_in")) and bool(cid)
+
+        if not logged:
+            answer = (
+                "You're chatting as a guest, so I can't see orders on an account yet. "
+                "Sign in and ask again — I'll list your orders and payment status."
+            )
+            await self._notify(
+                event_sink,
+                {
+                    "type": "agent_done",
+                    "agent": "order",
+                    "summary": answer[:400],
+                    "terminal_state": TerminalState.COMPLETED.value,
+                    "framework": "order-ops",
+                },
+            )
+            sub = [
+                SubResult(
+                    agent="order",
+                    task="need sign-in",
+                    summary=answer,
+                    steps=max(self.steps, 1),
+                    tools=[],
+                    terminal_state=TerminalState.COMPLETED.value,
+                ).__dict__
+            ]
+            return answer, TerminalState.COMPLETED, sub, [], facts, ""
+
+        result = await self.gateway.call("get_orders", {"customer_id": cid, "limit": 8})
+        tools = ["get_orders"]
+        if result.ok:
+            facts = absorb(facts, "get_orders", result.data)
+            orders = result.data.get("orders") or []
+            if not orders:
+                answer = "I don't see any orders on your ShopZone account yet. Browse the store and I can place one after you pick UPI, Card, or Cash on delivery."
+            else:
+                lines = [f"Here are your recent ShopZone orders ({result.data.get('count', len(orders))}):"]
+                for o in orders[:8]:
+                    items = o.get("items") or []
+                    titles = ", ".join(
+                        f"{i.get('title') or i.get('product_id')} ×{i.get('qty') or 1}"
+                        for i in items[:3]
+                    ) or "items"
+                    total = int(o.get("total_inr") or 0)
+                    lines.append(
+                        f"• {o.get('order_id')} — {o.get('status')} — ₹{total:,} — {titles}"
+                    )
+                lines.append("Ask me about payment, tracking, or a return on any of these.")
+                answer = "\n".join(lines)
+        else:
+            answer = result.denial_reason or "I couldn't load your orders just now. Try again in a moment."
+
+        await self._notify(
+            event_sink,
+            {
+                "type": "agent_done",
+                "agent": "order",
+                "summary": answer[:400],
+                "terminal_state": TerminalState.COMPLETED.value,
+                "framework": "order-ops",
+            },
+        )
+        sub = [
+            SubResult(
+                agent="order",
+                task="list orders",
+                summary=answer,
+                steps=max(self.steps, 1),
+                tools=tools,
+                terminal_state=TerminalState.COMPLETED.value,
+            ).__dict__
+        ]
+        return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
 
     async def _guided_checkout(self, text: str, facts: dict, intent: str, event_sink=None):
         """Checkout specialist without LangGraph: collect item + payment, then place."""
@@ -1064,6 +1194,9 @@ class Orchestrator:
         guided = await self._guided_checkout(text, facts, intent, event_sink)
         if guided:
             return guided
+        orders = await self._guided_my_orders(text, facts, intent, event_sink)
+        if orders:
+            return orders
         owner = await self._guided_owner_ops(text, facts, intent, event_sink)
         if owner:
             return owner
@@ -1205,7 +1338,7 @@ class Orchestrator:
                 f"The current customer is {self.principal.customer_id}"
                 + (f" ({facts.get('customer_name')})" if facts.get("customer_name") else "")
                 + ". Always pass this as customer_id when a tool requires it. "
-                + ("They are logged in." if facts.get("logged_in") else "They are a guest — do not create_order."),
+                + ("They are logged in — never ask them to sign in; call get_orders/get_payment for their account." if facts.get("logged_in") else "They are a guest — do not create_order."),
             )
             if facts.get("orders"):
                 brief = "; ".join(

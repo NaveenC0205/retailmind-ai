@@ -47,3 +47,9 @@ def test_restock_is_not_rewritten_to_stock():
     out = rewrite_query("Which products need restock?")
     assert "restock" in out
     assert detect_intent("Which products need restock?") == "admin_ops"
+
+
+def test_order_typos_route_to_order_list():
+    assert "orders" in rewrite_query("can u check irders")
+    assert detect_intent("can u check irders") == "order_list"
+    assert detect_intent("check orders") == "order_list"

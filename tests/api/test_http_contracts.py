@@ -86,6 +86,31 @@ async def test_chat_conversation_is_scoped_to_the_caller(client):
     assert stolen["conversation_id"] != first["conversation_id"]
 
 
+async def test_logged_in_check_irders_lists_orders_in_english(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "can u check irders", "mode": "multi_agent"},
+        headers=NAVEEN,
+    )).json()
+    low = body["answer"].lower()
+    assert "sign in" not in low
+    assert "sign-in" not in low
+    assert "or-" in low
+    assert "aapke" not in low
+    assert body.get("suggestions")
+
+
+async def test_guest_check_orders_asks_to_sign_in_in_english(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "can u check irders", "mode": "multi_agent"},
+    )).json()
+    low = body["answer"].lower()
+    assert "sign in" in low
+    assert "aapke" not in low
+    assert any("sign in" in s.lower() for s in (body.get("suggestions") or []))
+
+
 async def test_guest_place_order_collects_signin_and_suggests(client):
     body = (await client.post(
         "/api/chat",
