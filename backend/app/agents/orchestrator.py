@@ -1220,12 +1220,16 @@ class Orchestrator:
             {"type": "agent_start", "agent": "admin", "task": "add product", "framework": "owner-ops"},
         )
 
+        # The typo/English rewrite can lowercase `text`; the raw query keeps
+        # the owner's capitalisation for the title and brand.
+        raw = str(facts.get("original_query") or text or "")
+
         title = ""
-        m = _re.search(r"[\"“']([^\"”']{2,80})[\"”']", text or "")
+        m = _re.search(r"[\"“']([^\"”']{2,80})[\"”']", raw)
         if m:
             title = m.group(1).strip()
         else:
-            m = _re.search(r"\b(?:called|named|titled)\s+([A-Za-z0-9][\w\s+.-]{1,60}?)(?=\s+(?:price|for|at|category|brand|stock|qty)\b|$)", text or "", _re.I)
+            m = _re.search(r"\b(?:called|named|titled)\s+([A-Za-z0-9][\w\s+.-]{1,60}?)(?=\s+(?:price|for|at|category|brand|stock|qty)\b|$)", raw, _re.I)
             if m:
                 title = m.group(1).strip()
 
@@ -1240,7 +1244,7 @@ class Orchestrator:
         )
         category = {"laptop": "laptops", "phone": "phones", "monitor": "monitors", "accessory": "accessories"}.get(category, category)
 
-        m = _re.search(r"\bbrand\s+([A-Za-z0-9][\w-]{0,24})", text or "", _re.I)
+        m = _re.search(r"\bbrand\s+([A-Za-z0-9][\w-]{0,24})", raw, _re.I)
         brand = m.group(1) if m else ""
         m = _re.search(r"\b(?:stock|qty|quantity|units?)\s+(\d{1,6})", low)
         stock = int(m.group(1)) if m else 0
