@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product — ShopZone</title>
+    <link rel="stylesheet" href="/shop/shop.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <div class="cm-container">
+        <div id="loading" class="cm-loading"><i class="fas fa-spinner fa-spin"></i> Loading piece…</div>
+        <div id="product-detail" style="display:none"></div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script src="/shop/chat-widget.js"></script>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const productId = params.get('id');
+
+        async function loadProduct() {
+            Shop.mountLayout('product');
+            if (!productId) {
+                window.location.href = '/shop/';
+                return;
+            }
+
+            try {
+                const p = await Shop.fetchProduct(productId);
+                document.title = p.title + ' — ShopZone';
+                document.getElementById('loading').style.display = 'none';
+                const el = document.getElementById('product-detail');
+                el.style.display = 'block';
+                el.innerHTML = `
+                    <div style="font-size:12px;color:var(--cm-muted);margin-bottom:16px;letter-spacing:.06em;text-transform:uppercase">
+                        <a href="/shop/">Home</a> · ${p.category} · ${p.brand}
+                    </div>
+                    <div class="cm-pdp">
+                        <div class="cm-card-img" style="aspect-ratio:1;min-height:360px">
+                            <img src="${Shop.productImageUrl(p)}" alt="${p.title}">
+                        </div>
+                        <div>
+                            <div class="cm-card-meta">${(p.category || '').toUpperCase()}</div>
+                            <h1 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:40px;font-weight:500;margin:8px 0 12px;line-height:1.15">${p.title}</h1>
+                            <div style="margin-bottom:8px;color:var(--cm-muted)">By <strong style="color:var(--cm-ink)">${p.brand}</strong></div>
+                            <div style="margin-bottom:16px;color:var(--cm-gold-deep)">${Shop.stars(p.rating)}</div>
+                            <div class="cm-price" style="font-size:28px;margin-bottom:8px">${Shop.formatPrice(p.price_inr)}</div>
+                            <p style="color:var(--cm-muted);font-size:14px;margin:0 0 20px">Free shipping · 15-day returns · Certified jewellery</p>
+                            <div style="margin:0 0 16px">
+                                <label style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-right:8px">Qty</label>
+                                <select id="qty" class="cm-input" style="width:auto;display:inline-block;margin:0">
+                                    ${[1,2,3,4,5].map(n => `<option value="${n}">${n}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px">
+                                <button type="button" class="cm-btn cm-btn-outline" onclick="addToCart()">Add to Cart</button>
+                                <button type="button" class="cm-btn cm-btn-dark" onclick="buyNow()">Buy Now</button>
+                                <button type="button" class="cm-btn cm-btn-gold" onclick="saveLater()">Save for later</button>
+                                <button type="button" class="cm-btn cm-btn-outline" onclick="askAbout()">Ask AI</button>
+                            </div>
+                            <h3 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:22px;font-weight:500;margin:0 0 10px">About this piece</h3>
+                            <ul style="margin:0;padding-left:18px;color:var(--cm-muted);font-size:14px;line-height:1.7">
+                                <li>SKU: ${p.sku}</li>
+                                <li>Category: ${p.category}</li>
+                                ${Object.entries(p.attributes || {}).map(([k,v]) => `<li>${k}: ${v}</li>`).join('')}
+                            </ul>
+                            ${p.description ? `<p style="font-size:14px;line-height:1.7;margin-top:16px">${p.description}</p>` : ''}
+                        </div>
+                    </div>
+                `;
+                window._product = p;
+            } catch (e) {
+                document.getElementById('loading').innerHTML = 'Piece not found. <a href="/shop/">Go back</a>';
+            }
+        }
+
+        function addToCart() {
+            const qty = parseInt(document.getElementById('qty').value) || 1;
+            Shop.addToCart(window._product.id, window._product.title, window._product.price_inr, qty);
+        }
+
+        function buyNow() {
+            addToCart();
+            window.location.href = '/shop/cart.html';
+        }
+
+        function saveLater() {
+            Shop.toggleWishlist(window._product.id, window._product.title, window._product.price_inr);
+        }
+
+        function askAbout() {
+            MultiAgentChat.toggle(true);
+            const p = window._product;
+            document.getElementById('cm-chat-input').value =
+                `Compare ${p.title} with similar ${p.category} under ₹${p.price_inr}, filter by rating and key features from the catalogue.`;
+        }
+
+        loadProduct();
+    </script>
+</body>
+</html>

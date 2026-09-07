@@ -26,8 +26,18 @@ setup: .venv ## Create the venv and install everything
 bootstrap: ## Create tables, seed business data, ingest the knowledge base
 	$(PY) scripts/bootstrap.py
 
-dev: ## Run the API + UI on http://localhost:$(PORT)
+dev: ## Run the API + React shop on http://localhost:$(PORT)
 	.venv/bin/uvicorn app.main:app --app-dir backend --reload --port $(PORT)
+
+frontend-dev: ## Vite React shop (proxies /api → :8000)
+	cd frontend && npm run dev
+
+frontend-build: ## Build React shop into backend/static/shop
+	cd frontend && npm run build
+
+reseed: ## Wipe DB and reseed (30+ products per electronics category)
+	rm -f var/retailmind.db
+	$(PY) scripts/bootstrap.py
 
 # ---------------------------------------------------------------- tests
 test: ## Full suite

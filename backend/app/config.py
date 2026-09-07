@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     max_steps: int = 20
     max_tokens_per_run: int = 60000
     max_wall_clock_s: float = 90.0
+    # Multi-agent runtime: langgraph (LangChain StateGraph supervisor team)
+    multi_agent_framework: str = "langgraph"
 
     # --- policy --------------------------------------------------------
     hitl_refund_threshold_inr: int = 50000

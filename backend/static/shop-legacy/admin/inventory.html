@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Management - RetailMind Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/shop/shop.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -23,7 +24,7 @@
         <div class="max-w-7xl mx-auto px-4">
             <div class="flex justify-between items-center h-16">
                 <div class="flex items-center space-x-4">
-                    <a href="/shop/admin/" class="text-2xl font-bold">⚙️ Admin Panel</a>
+                    <a href="/shop/admin/" class="text-2xl font-bold">CaratMind Owner</a>
                     <span class="bg-red-600 px-2 py-1 text-xs rounded">ADMIN</span>
                 </div>
                 <div class="flex items-center space-x-6">
@@ -31,7 +32,7 @@
                     <a href="/shop/admin/orders.html" class="hover:text-gray-300">Orders</a>
                     <a href="/shop/admin/products.html" class="hover:text-gray-300">Products</a>
                     <a href="/shop/admin/inventory.html" class="text-white">Inventory</a>
-                    <a href="/shop/" class="bg-indigo-600 px-3 py-1 rounded hover:bg-indigo-500">View Shop</a>
+                    <a href="/shop/" class="bg-amber-800 px-3 py-1 rounded hover:bg-amber-700">View Shop</a>
                 </div>
             </div>
         </div>
@@ -47,7 +48,7 @@
                     <option value="MUM-1">Mumbai (MUM-1)</option>
                     <option value="DEL-1">Delhi (DEL-1)</option>
                 </select>
-                <button onclick="loadInventory()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+                <button onclick="loadInventory()" class="bg-amber-800 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
                     <i class="fas fa-sync-alt"></i> Refresh
                 </button>
             </div>
@@ -137,7 +138,7 @@
                     <button onclick="closeStockModal()" class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300">
                         Cancel
                     </button>
-                    <button onclick="saveStock()" class="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700">
+                    <button onclick="saveStock()" class="flex-1 bg-amber-800 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700">
                         <i class="fas fa-save mr-2"></i>Save
                     </button>
                 </div>
@@ -275,5 +276,7 @@
 
         document.addEventListener('DOMContentLoaded', loadInventory);
     </script>
+    <script src="/shop/common.js"></script>
+    <script src="/shop/chat-widget.js"></script>
 </body>
 </html>

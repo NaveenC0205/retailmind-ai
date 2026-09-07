@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Orders — ShopZone</title>
+    <link rel="stylesheet" href="/shop/shop.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <div class="cm-container">
+        <h1 class="cm-section-title" style="text-align:left">Your Orders</h1>
+        <p class="cm-section-sub" style="text-align:left">Order history · track deliveries · returns</p>
+
+        <div id="success-banner" style="display:none;background:#e8f5ef;border:1px solid #b7dfc9;padding:16px;margin-bottom:16px">
+            <i class="fas fa-check-circle" style="color:var(--cm-success)"></i>
+            Order placed — ID: <strong id="placed-order-id"></strong>
+        </div>
+
+        <div id="loading" class="cm-loading"><i class="fas fa-spinner fa-spin"></i> Loading orders…</div>
+        <div id="no-orders" style="display:none;background:#fff;border:1px solid var(--cm-line);padding:40px;text-align:center">
+            <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:500">No orders yet</h2>
+            <a href="/shop/" class="cm-btn cm-btn-dark" style="display:inline-flex;margin-top:16px">Start shopping</a>
+        </div>
+        <div id="orders-list"></div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script src="/shop/chat-widget.js"></script>
+    <script>
+        const statusColors = {
+            placed: 'var(--cm-gold-deep)', packed: '#a67c52', shipped: '#8a6a45',
+            delivered: 'var(--cm-success)', cancelled: '#9b2c2c'
+        };
+
+        async function loadOrders() {
+            Shop.mountLayout('orders');
+
+            const placed = new URLSearchParams(window.location.search).get('placed');
+            if (placed) {
+                document.getElementById('success-banner').style.display = 'block';
+                document.getElementById('placed-order-id').textContent = placed;
+            }
+
+            try {
+                const cid = Shop.getCustomerId();
+                const res = await fetch(`/api/customers/${cid}/orders`, { headers: Shop.getAuthHeaders() });
+                const data = await res.json();
+                renderOrders(data.orders || []);
+            } catch (e) {
+                renderOrders([]);
+            }
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function renderOrders(orders) {
+            const list = document.getElementById('orders-list');
+            if (!orders.length) {
+                document.getElementById('no-orders').style.display = 'block';
+                return;
+            }
+
+            list.innerHTML = orders.map(o => `
+                <div style="background:#fff;padding:20px;margin-bottom:12px;border:1px solid var(--cm-line)">
+                    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;background:var(--cm-bg);padding:12px 16px;margin:-20px -20px 16px;font-size:12px;letter-spacing:.04em">
+                        <div><span style="color:var(--cm-muted)">ORDERED</span><br><strong>${new Date(o.placed_at).toLocaleDateString('en-IN')}</strong></div>
+                        <div><span style="color:var(--cm-muted)">TOTAL</span><br><strong>${Shop.formatPrice(o.total_inr)}</strong></div>
+                        <div><span style="color:var(--cm-muted)">ORDER #</span><br><strong>${o.id}</strong></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+                        <div>
+                            <span style="color:${statusColors[o.status] || 'inherit'};font-weight:600;text-transform:capitalize">${o.status}</span>
+                            <div style="font-size:13px;color:var(--cm-muted);margin-top:4px">${o.items?.length || 0} piece(s)</div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            ${o.status === 'placed' ? `<button class="cm-btn cm-btn-outline" onclick="cancelOrder('${o.id}')">Cancel</button>` : ''}
+                            <button class="cm-btn cm-btn-dark" onclick="askTrack('${o.id}')">Ask agents</button>
+                            <button class="cm-btn cm-btn-gold" onclick="buyAgain()">Shop again</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function askTrack(id) {
+            MultiAgentChat.toggle(true);
+            document.getElementById('cm-chat-input').value = `Where is my order ${id} and why might it be delayed?`;
+        }
+
+        function cancelOrder(id) {
+            if (confirm('Cancel order ' + id + '?')) {
+                MultiAgentChat.toggle(true);
+                document.getElementById('cm-chat-input').value = `Please cancel my order ${id}`;
+            }
+        }
+
+        function buyAgain() {
+            window.location.href = '/shop/';
+        }
+
+        loadOrders();
+    </script>
+</body>
+</html>

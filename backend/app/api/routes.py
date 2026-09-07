@@ -10,8 +10,12 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
+
+import asyncio
+import json
 
 from app.agents.orchestrator import Orchestrator
 from app.config import get_settings
@@ -179,6 +183,7 @@ class ChatResponse(BaseModel):
     tokens: dict
     cost_inr: float
     latency_ms: int
+    framework: str = ""
 
 
 @router.post("/api/chat", response_model=ChatResponse, tags=["chat"])
@@ -225,6 +230,7 @@ async def chat(
     await session.commit()
     await flush(trace)
 
+    framework = "langgraph" if result.mode == "multi_agent" else ""
     return ChatResponse(
         answer=result.answer,
         conversation_id=conversation_id,
@@ -243,6 +249,109 @@ async def chat(
         tokens={"in": result.tokens_in, "out": result.tokens_out},
         cost_inr=result.cost_inr,
         latency_ms=result.latency_ms,
+        framework=framework,
+    )
+
+
+@router.post("/api/chat/stream", tags=["chat"])
+async def chat_stream(
+    body: ChatRequest,
+    principal: Principal = Depends(require_principal),
+    session=Depends(get_session),
+):
+    """SSE stream of LangGraph multi-agent events, then a final chat payload."""
+    queue: asyncio.Queue = asyncio.Queue()
+    conversation_id = body.conversation_id or new_id("CONV")
+    mode = body.mode if body.mode != "auto" else "multi_agent"
+
+    async def event_sink(ev: dict):
+        await queue.put({"event": "agent", "data": ev})
+
+    async def runner():
+        trace = new_trace()
+        try:
+            if not body.conversation_id:
+                session.add(
+                    Conversation(
+                        id=conversation_id,
+                        customer_id=principal.customer_id or "guest",
+                        mode=mode,
+                    )
+                )
+            session.add(
+                Message(
+                    id=new_id("MSG"),
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=body.message,
+                    provenance="USER",
+                )
+            )
+            orch = Orchestrator(session, principal, prompt_version=body.prompt_version)
+            result = await orch.run(
+                body.message,
+                conversation_id=conversation_id,
+                mode=mode,
+                event_sink=event_sink,
+            )
+            session.add(
+                Message(
+                    id=new_id("MSG"),
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=result.answer,
+                    provenance="SYSTEM",
+                )
+            )
+            if body.learn and principal.kind == "customer":
+                await orch.learn(body.message, conversation_id=conversation_id)
+            await session.commit()
+            await flush(trace)
+            await queue.put(
+                {
+                    "event": "final",
+                    "data": {
+                        "answer": result.answer,
+                        "conversation_id": conversation_id,
+                        "trace_id": result.trace_id,
+                        "run_id": result.run_id,
+                        "mode": result.mode,
+                        "entry_agent": result.entry_agent,
+                        "terminal_state": result.terminal_state,
+                        "steps": result.steps,
+                        "trajectory": result.trajectory,
+                        "sub_results": result.sub_results,
+                        "framework": "langgraph" if result.mode == "multi_agent" else "",
+                        "latency_ms": result.latency_ms,
+                    },
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            await queue.put({"event": "error", "data": {"message": str(exc)}})
+        finally:
+            await queue.put(None)
+
+    async def generate():
+        task = asyncio.create_task(runner())
+        try:
+            yield f"event: start\ndata: {json.dumps({'framework': 'langgraph', 'conversation_id': conversation_id})}\n\n"
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield f"event: {item['event']}\ndata: {json.dumps(item['data'], default=str)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+        finally:
+            await task
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -475,7 +584,7 @@ async def list_prompts():
 @router.get("/api/products", tags=["shop"])
 async def list_products(
     category: Optional[str] = None,
-    limit: int = Query(default=50, le=200),
+    limit: int = Query(default=50, le=500),
     session=Depends(get_session),
 ):
     query = select(Product).limit(limit)
@@ -493,6 +602,7 @@ async def list_products(
                 "price_inr": p.price_inr,
                 "rating": p.rating,
                 "attributes": p.attributes,
+                "description": p.description_raw,
             }
             for p in rows
         ]
@@ -563,9 +673,62 @@ async def get_order(
     order = await session.get(Order, order_id)
     if not order:
         raise HTTPException(404, "order not found")
-    if principal.customer_id and principal.customer_id != order.customer_id:
-        raise HTTPException(403, "cannot view other customer's order")
-    
+    if principal.kind != "operator":
+        if principal.customer_id and principal.customer_id != order.customer_id:
+            raise HTTPException(403, "cannot view other customer's order")
+
+    items = []
+    for i in order.items:
+        product = await session.get(Product, i.product_id)
+        items.append({
+            "product_id": i.product_id,
+            "title": product.title if product else i.product_id,
+            "brand": product.brand if product else "",
+            "category": product.category if product else "",
+            "qty": i.qty,
+            "unit_price_inr": i.unit_price_inr,
+            "line_total_inr": i.qty * i.unit_price_inr,
+        })
+
+    shipments = (
+        await session.execute(select(Shipment).where(Shipment.order_id == order_id))
+    ).scalars().all()
+    shipping = []
+    for s in shipments:
+        events = (
+            await session.execute(
+                select(ShipmentEvent).where(ShipmentEvent.shipment_id == s.id).order_by(ShipmentEvent.occurred_at)
+            )
+        ).scalars().all()
+        shipping.append({
+            "shipment_id": s.id,
+            "carrier": s.carrier,
+            "awb": s.awb,
+            "status": s.status,
+            "exception_code": s.exception_code,
+            "promised_at": s.promised_at.isoformat() if s.promised_at else None,
+            "delivered_at": s.delivered_at.isoformat() if s.delivered_at else None,
+            "events": [
+                {
+                    "code": e.code,
+                    "message": e.description,
+                    "at": e.occurred_at.isoformat() if e.occurred_at else None,
+                }
+                for e in events
+            ],
+        })
+
+    payments = (
+        await session.execute(select(Payment).where(Payment.order_id == order_id))
+    ).scalars().all()
+
+    status_timeline = ["placed", "packed", "shipped", "delivered"]
+    current = order.status
+    try:
+        idx = status_timeline.index(current) if current in status_timeline else -1
+    except ValueError:
+        idx = -1
+
     return {
         "id": order.id,
         "customer_id": order.customer_id,
@@ -573,10 +736,20 @@ async def get_order(
         "total_inr": order.total_inr,
         "channel": order.channel,
         "placed_at": order.placed_at.isoformat() if order.placed_at else None,
-        "items": [
-            {"product_id": i.product_id, "qty": i.qty, "unit_price_inr": i.unit_price_inr}
-            for i in order.items
+        "items": items,
+        "shipping": shipping,
+        "payments": [
+            {
+                "payment_id": p.id,
+                "method": p.method,
+                "amount_inr": p.amount_inr,
+                "status": p.status,
+                "gateway_ref": p.gateway_ref,
+            }
+            for p in payments
         ],
+        "status_timeline": status_timeline,
+        "status_index": idx,
     }
 
 
@@ -839,6 +1012,8 @@ async def admin_list_products(
                 "category": p.category,
                 "price_inr": p.price_inr,
                 "rating": p.rating,
+                "attributes": p.attributes,
+                "description": p.description_raw,
             }
             for p in rows
         ]

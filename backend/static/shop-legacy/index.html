@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShopZone: Phones, Laptops & Electronics</title>
+    <link rel="stylesheet" href="/shop/shop.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+      .shop-layout { display: grid; grid-template-columns: 240px 1fr; gap: 28px; }
+      @media (max-width: 900px) { .shop-layout { grid-template-columns: 1fr; } }
+      .filter-panel { background: #fff; border: 1px solid var(--cm-line); padding: 20px; height: fit-content; position: sticky; top: 90px; }
+      .filter-panel h3 { font-family: "Cormorant Garamond", Georgia, serif; font-size: 22px; font-weight: 500; margin: 0 0 14px; }
+      .filter-panel label { display: block; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--cm-muted); margin: 14px 0 6px; }
+      .filter-panel select, .filter-panel input { width: 100%; padding: 10px; border: 1px solid var(--cm-line); background: #fff; }
+      .filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .cm-hero-elec {
+        background:
+          linear-gradient(120deg, rgba(26,32,44,.72), rgba(35,47,62,.45)),
+          linear-gradient(160deg, #1a202c, #2d3748 55%, #4a5568);
+      }
+    </style>
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <section class="cm-hero cm-hero-elec">
+        <div class="cm-hero-inner">
+            <h1 class="cm-hero-brand">shopZone</h1>
+            <p>Phones, laptops, audio & more — shop with filters or ask the AI multi-agent team.</p>
+            <div class="cm-hero-cta">
+                <a href="/shop/?cat=phones" class="cm-btn cm-btn-gold">Shop Phones</a>
+                <a href="/shop/?cat=laptops" class="cm-btn cm-btn-ghost">Shop Laptops</a>
+            </div>
+        </div>
+    </section>
+
+    <div class="cm-container">
+        <div class="cm-cats" style="margin-bottom:32px">
+            <a class="cm-cat" href="/shop/?cat=laptops"><i class="fas fa-laptop"></i><span>Laptops</span></a>
+            <a class="cm-cat" href="/shop/?cat=phones"><i class="fas fa-mobile-alt"></i><span>Phones</span></a>
+            <a class="cm-cat" href="/shop/?cat=audio"><i class="fas fa-headphones"></i><span>Audio</span></a>
+            <a class="cm-cat" href="/shop/?cat=monitors"><i class="fas fa-desktop"></i><span>Monitors</span></a>
+            <a class="cm-cat" href="/shop/?cat=accessories"><i class="fas fa-keyboard"></i><span>Accessories</span></a>
+            <a class="cm-cat" href="/shop/?cat=today"><i class="fas fa-bolt"></i><span>Deals</span></a>
+        </div>
+
+        <div class="shop-layout">
+            <aside class="filter-panel">
+                <h3>Filters</h3>
+                <label>Category</label>
+                <select id="f-cat">
+                    <option value="">All electronics</option>
+                    <option value="laptops">Laptops</option>
+                    <option value="phones">Phones</option>
+                    <option value="audio">Audio</option>
+                    <option value="monitors">Monitors</option>
+                    <option value="accessories">Accessories</option>
+                </select>
+
+                <label>Brand</label>
+                <select id="f-brand"><option value="">Any brand</option></select>
+
+                <label>Price (₹)</label>
+                <div class="filter-row">
+                    <input type="number" id="f-min" placeholder="Min" min="0">
+                    <input type="number" id="f-max" placeholder="Max" min="0">
+                </div>
+
+                <label>Min rating</label>
+                <select id="f-rating">
+                    <option value="">Any</option>
+                    <option value="4.5">4.5+</option>
+                    <option value="4">4+</option>
+                    <option value="3.5">3.5+</option>
+                </select>
+
+                <label>Feature / specs</label>
+                <select id="f-feature">
+                    <option value="">Any</option>
+                    <option value="ram:16">RAM 16GB+</option>
+                    <option value="ram:32">RAM 32GB+</option>
+                    <option value="storage:512">Storage 512GB+</option>
+                    <option value="anc:true">ANC (audio)</option>
+                    <option value="wireless:true">Wireless</option>
+                    <option value="cpu:M">Apple Silicon (M)</option>
+                </select>
+
+                <label>Sort</label>
+                <select id="f-sort">
+                    <option value="rating">Top rated</option>
+                    <option value="price_asc">Price: low to high</option>
+                    <option value="price_desc">Price: high to low</option>
+                    <option value="name">Name A–Z</option>
+                </select>
+
+                <button type="button" class="cm-btn cm-btn-dark" style="width:100%;margin-top:18px" onclick="applyFilters()">Apply</button>
+                <button type="button" class="cm-btn cm-btn-outline" style="width:100%;margin-top:8px" onclick="clearFilters()">Clear</button>
+                <button type="button" class="cm-btn cm-btn-gold" style="width:100%;margin-top:8px" onclick="askAgentFilters()">Ask AI with these filters</button>
+            </aside>
+
+            <div>
+                <h2 class="cm-section-title" id="section-title" style="text-align:left">Electronics for you</h2>
+                <p class="cm-section-sub" id="result-count" style="text-align:left">Loading…</p>
+                <div id="products-grid" class="cm-grid"></div>
+                <div id="loading" class="cm-loading"><i class="fas fa-spinner fa-spin"></i> Loading…</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script src="/shop/chat-widget.js"></script>
+    <script>
+        let allProducts = [];
+
+        function featureMatch(p, feature) {
+            if (!feature) return true;
+            const attrs = p.attributes || {};
+            const [key, raw] = feature.split(':');
+            if (key === 'ram') return Number(attrs.ram_gb || 0) >= Number(raw);
+            if (key === 'storage') return Number(attrs.storage_gb || 0) >= Number(raw);
+            if (key === 'anc') return !!attrs.anc === (raw === 'true');
+            if (key === 'wireless') return !!attrs.wireless === (raw === 'true');
+            if (key === 'cpu') return String(attrs.cpu || '').toUpperCase().includes(raw.toUpperCase());
+            return true;
+        }
+
+        function renderProducts(products) {
+            const grid = document.getElementById('products-grid');
+            const loading = document.getElementById('loading');
+            loading.style.display = 'none';
+            document.getElementById('result-count').textContent = `${products.length} item(s)`;
+
+            if (!products.length) {
+                grid.innerHTML = '<p style="grid-column:1/-1;color:var(--cm-muted)">No products match these filters. Try clearing filters or ask the AI assistant.</p>';
+                return;
+            }
+
+            grid.innerHTML = products.map((p, i) => `
+                <article class="cm-card" style="animation-delay:${(i % 8) * 0.04}s">
+                    <a href="/shop/product.html?id=${p.id}">
+                        <div class="cm-card-img">
+                            <img src="${Shop.productImageUrl(p)}" alt="${p.title}">
+                        </div>
+                    </a>
+                    <div class="cm-card-body">
+                        <div class="cm-card-meta">${(p.category || '').toUpperCase()} · ${p.brand || ''}</div>
+                        <a href="/shop/product.html?id=${p.id}" class="cm-card-title">${p.title}</a>
+                        <div class="cm-card-meta">${Shop.stars(p.rating)} · ${p.rating}</div>
+                        <div class="cm-card-meta">${Object.entries(p.attributes || {}).slice(0,3).map(([k,v]) => `${k}: ${v}`).join(' · ')}</div>
+                        <div class="cm-price">${Shop.formatPrice(p.price_inr)}</div>
+                        <div class="cm-card-actions" style="grid-template-columns:1fr 1fr 1fr">
+                            <button type="button" class="cm-btn cm-btn-outline" onclick="Shop.addToCart('${p.id}','${p.title.replace(/'/g,"\\'")}',${p.price_inr})">Cart</button>
+                            <button type="button" class="cm-btn cm-btn-dark" onclick="buyNow('${p.id}','${p.title.replace(/'/g,"\\'")}',${p.price_inr})">Buy</button>
+                            <button type="button" class="cm-btn cm-btn-gold" onclick="Shop.toggleWishlist('${p.id}','${p.title.replace(/'/g,"\\'")}',${p.price_inr}); this.textContent=Shop.isWishlisted('${p.id}')?'Saved':'Later'">Later</button>
+                        </div>
+                    </div>
+                </article>
+            `).join('');
+        }
+
+        function buyNow(id, title, price) {
+            Shop.addToCart(id, title, price);
+            window.location.href = '/shop/cart.html';
+        }
+
+        function populateBrands(products) {
+            const brands = [...new Set(products.map(p => p.brand).filter(Boolean))].sort();
+            const sel = document.getElementById('f-brand');
+            const cur = sel.value;
+            sel.innerHTML = '<option value="">Any brand</option>' + brands.map(b => `<option value="${b}">${b}</option>`).join('');
+            if (cur) sel.value = cur;
+        }
+
+        function applyFilters() {
+            const params = new URLSearchParams(window.location.search);
+            const q = (document.getElementById('search-input')?.value || params.get('q') || '').toLowerCase();
+            const cat = document.getElementById('f-cat').value || params.get('cat') || '';
+            const brand = document.getElementById('f-brand').value;
+            const minP = Number(document.getElementById('f-min').value) || 0;
+            const maxP = Number(document.getElementById('f-max').value) || Infinity;
+            const minR = Number(document.getElementById('f-rating').value) || 0;
+            const feature = document.getElementById('f-feature').value;
+            const sort = document.getElementById('f-sort').value;
+
+            let filtered = allProducts.filter(Shop.isElectronics.bind(Shop));
+
+            if (cat && cat !== 'today') filtered = filtered.filter(p => (p.category || '').toLowerCase() === cat);
+            if (cat === 'today') {
+                filtered = [...filtered].sort((a,b) => b.rating - a.rating).slice(0, 8);
+                document.getElementById('section-title').textContent = "Today's Deals";
+            } else if (cat) {
+                document.getElementById('section-title').textContent = cat.charAt(0).toUpperCase() + cat.slice(1);
+            } else {
+                document.getElementById('section-title').textContent = 'Electronics for you';
+            }
+
+            if (brand) filtered = filtered.filter(p => p.brand === brand);
+            if (q) {
+                filtered = filtered.filter(p =>
+                    (p.title || '').toLowerCase().includes(q) ||
+                    (p.brand || '').toLowerCase().includes(q) ||
+                    (p.category || '').toLowerCase().includes(q) ||
+                    JSON.stringify(p.attributes || {}).toLowerCase().includes(q)
+                );
+                document.getElementById('section-title').textContent = `Results for "${q}"`;
+            }
+            filtered = filtered.filter(p => p.price_inr >= minP && p.price_inr <= maxP);
+            filtered = filtered.filter(p => (p.rating || 0) >= minR);
+            filtered = filtered.filter(p => featureMatch(p, feature));
+
+            if (sort === 'price_asc') filtered.sort((a,b) => a.price_inr - b.price_inr);
+            else if (sort === 'price_desc') filtered.sort((a,b) => b.price_inr - a.price_inr);
+            else if (sort === 'name') filtered.sort((a,b) => a.title.localeCompare(b.title));
+            else filtered.sort((a,b) => b.rating - a.rating);
+
+            renderProducts(filtered);
+        }
+
+        function clearFilters() {
+            document.getElementById('f-cat').value = '';
+            document.getElementById('f-brand').value = '';
+            document.getElementById('f-min').value = '';
+            document.getElementById('f-max').value = '';
+            document.getElementById('f-rating').value = '';
+            document.getElementById('f-feature').value = '';
+            document.getElementById('f-sort').value = 'rating';
+            history.replaceState({}, '', '/shop/');
+            applyFilters();
+        }
+
+        function askAgentFilters() {
+            const cat = document.getElementById('f-cat').value || 'electronics';
+            const brand = document.getElementById('f-brand').value;
+            const minP = document.getElementById('f-min').value;
+            const maxP = document.getElementById('f-max').value;
+            const minR = document.getElementById('f-rating').value;
+            const feature = document.getElementById('f-feature').selectedOptions[0]?.text || '';
+            let q = `Find me ${cat}`;
+            if (brand) q += ` from ${brand}`;
+            if (maxP) q += ` under ₹${maxP}`;
+            if (minP) q += ` above ₹${minP}`;
+            if (minR) q += ` with rating at least ${minR}`;
+            if (feature && feature !== 'Any') q += `, feature: ${feature}`;
+            q += '. Compare the best options.';
+            MultiAgentChat.toggle(true);
+            document.getElementById('cm-chat-input').value = q;
+        }
+
+        async function init() {
+            Shop.mountLayout('home');
+            allProducts = await Shop.fetchProducts();
+            const elec = allProducts.filter(Shop.isElectronics.bind(Shop));
+            populateBrands(elec);
+
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('cat')) document.getElementById('f-cat').value = params.get('cat') === 'today' ? '' : params.get('cat');
+            if (params.get('q')) {
+                const si = document.getElementById('search-input');
+                if (si) si.value = params.get('q');
+            }
+            ['f-cat','f-brand','f-min','f-max','f-rating','f-feature','f-sort'].forEach(id => {
+                document.getElementById(id).addEventListener('change', applyFilters);
+            });
+            applyFilters();
+        }
+
+        init();
+    </script>
+</body>
+</html>

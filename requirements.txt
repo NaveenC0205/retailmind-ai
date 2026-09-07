@@ -12,3 +12,7 @@ python-multipart>=0.0.9
 bcrypt>=4.0
 python-jose>=3.3
 cryptography>=42.0
+langgraph>=0.2
+langchain>=0.3
+langchain-core>=0.3
+langchain-openai>=0.2

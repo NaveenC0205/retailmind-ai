@@ -6,6 +6,7 @@ authorization -- that is the gateway's job and duplicating it here is how
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -123,15 +124,40 @@ async def search_products(session, principal, args: dict) -> dict:
         stmt = stmt.where(Product.category == args["category"])
     if args.get("brand"):
         stmt = stmt.where(Product.brand == args["brand"])
+    if args.get("min_price_inr") is not None:
+        stmt = stmt.where(Product.price_inr >= args["min_price_inr"])
     if args.get("max_price_inr"):
         stmt = stmt.where(Product.price_inr <= args["max_price_inr"])
     if args.get("min_rating"):
         stmt = stmt.where(Product.rating >= args["min_rating"])
     rows = (await session.execute(stmt)).scalars().all()
 
+    min_ram = args.get("min_ram_gb")
+    min_storage = args.get("min_storage_gb")
+    requires_anc = args.get("requires_anc")
+    attr_kw = (args.get("attribute_contains") or "").lower().strip()
+
+    def attrs_ok(p: Product) -> bool:
+        a = p.attributes or {}
+        if min_ram is not None and int(a.get("ram_gb") or 0) < int(min_ram):
+            return False
+        if min_storage is not None and int(a.get("storage_gb") or 0) < int(min_storage):
+            return False
+        if requires_anc is True and not a.get("anc"):
+            return False
+        if requires_anc is False and a.get("anc"):
+            return False
+        if attr_kw:
+            hay = json.dumps(a, default=str).lower()
+            if attr_kw not in hay:
+                return False
+        return True
+
+    rows = [p for p in rows if attrs_ok(p)]
+
     q = (args.get("query") or "").lower()
     if q:
-        terms = [t for t in q.split() if len(t) > 3]
+        terms = [t for t in q.split() if len(t) > 2]
         def relevance(p: Product) -> int:
             hay = f"{p.title} {p.brand} {p.category} {p.attributes}".lower()
             return sum(1 for t in terms if t in hay)
@@ -734,7 +760,7 @@ def _register_all() -> None:
         return int(ctx.get("order_total_inr", 0)) > s.hitl_refund_threshold_inr
 
     R = registry.register
-    R(ToolContract("search_products", "Search the product catalogue by free text, category, brand, maximum price or minimum rating. Returns matching products with price, rating and seller description.", SearchProductsIn, ("products:read",), search_products, untrusted_fields=("description",)))
+    R(ToolContract("search_products", "Search electronics catalogue by text, category (laptops/phones/audio/monitors/accessories), brand, min/max price (INR), min rating, min_ram_gb, min_storage_gb, requires_anc, or attribute_contains (feature keyword). Returns matching products with price, rating, attributes and description.", SearchProductsIn, ("products:read",), search_products, untrusted_fields=("description",)))
     R(ToolContract("get_product", "Fetch one product by its product_id, including attributes and the seller-written description.", ProductIdIn, ("products:read",), get_product, untrusted_fields=("description",)))
     R(ToolContract("compare_products", "Compare 2-5 products side by side on price, rating and shared attributes.", CompareProductsIn, ("products:read",), compare_products, untrusted_fields=("description",)))
     R(ToolContract("check_inventory", "Check stock availability for one product across warehouses.", ProductIdIn, ("products:read",), check_inventory))

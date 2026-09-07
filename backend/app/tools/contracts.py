@@ -26,8 +26,17 @@ class SearchProductsIn(BaseModel):
     query: str = ""
     category: Optional[str] = None
     brand: Optional[str] = None
+    min_price_inr: Optional[int] = Field(default=None, ge=0)
     max_price_inr: Optional[int] = Field(default=None, ge=0)
     min_rating: Optional[float] = Field(default=None, ge=0, le=5)
+    # Feature filters for electronics (RAM, storage, ANC, etc.)
+    min_ram_gb: Optional[int] = Field(default=None, ge=0)
+    min_storage_gb: Optional[int] = Field(default=None, ge=0)
+    requires_anc: Optional[bool] = None
+    attribute_contains: Optional[str] = Field(
+        default=None,
+        description="Match a keyword inside product attributes/features JSON (e.g. 'M3', 'IPS', 'wireless')",
+    )
     limit: int = Field(default=5, ge=1, le=25)
 
 

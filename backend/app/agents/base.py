@@ -57,20 +57,35 @@ _null = _Null()
 AGENTS: dict[str, AgentSpec] = {
     "supervisor": AgentSpec(
         name="supervisor",
-        role=("You coordinate specialist agents. You decompose a request into sub-tasks, "
-              "delegate each to exactly one specialist, and compose the final answer. "
-              "You never call business tools yourself."),
-        delegates_to=("product", "order", "policy", "refund", "support", "recommendation", "shopping"),
+        role=(
+            "You are the supervisor of a multi-agent electronics retail team "
+            "(phones, laptops, audio, monitors, accessories). "
+            "Decompose the customer or shop-owner request into sub-tasks, "
+            "delegate each to exactly one specialist, wait for their results, "
+            "then compose one clear final answer. Never call business tools yourself. "
+            "Prefer parallel planning: shopping+policy, order+refund, admin+order when needed."
+        ),
+        delegates_to=(
+            "shopping", "product", "order", "checkout", "policy",
+            "refund", "support", "recommendation", "admin",
+        ),
     ),
     "shopping": AgentSpec(
         name="shopping",
-        role="You help customers find and choose products within their stated constraints.",
-        tools=("search_products", "compare_products", "get_recommendations",
-               "get_customer_preferences", "get_active_promotions", "validate_coupon"),
+        role=(
+            "You are the shopping specialist for electronics. Help customers find "
+            "phones, laptops, headphones, monitors and accessories using search_products "
+            "with category, brand, min/max price, min_rating, min_ram_gb, min_storage_gb, "
+            "requires_anc, and attribute_contains. Always filter from catalogue data."
+        ),
+        tools=(
+            "search_products", "compare_products", "get_recommendations",
+            "get_customer_preferences", "get_active_promotions", "validate_coupon",
+        ),
     ),
     "product": AgentSpec(
         name="product",
-        role="You answer questions about specific products: specs, stock, comparisons.",
+        role="You answer questions about specific electronics: specs (RAM, storage, CPU, ANC), stock, and comparisons.",
         tools=("search_products", "get_product", "compare_products", "check_inventory"),
     ),
     "order": AgentSpec(
@@ -78,10 +93,20 @@ AGENTS: dict[str, AgentSpec] = {
         role="You look up the customer's own orders and shipments, and cancel unshipped orders.",
         tools=("get_orders", "get_order", "cancel_order", "get_shipment", "track_shipment"),
     ),
+    "checkout": AgentSpec(
+        name="checkout",
+        role=(
+            "You help place orders for the authenticated customer using create_order. "
+            "Confirm product ids and quantities from prior search/facts before ordering."
+        ),
+        tools=("search_products", "get_product", "check_inventory", "create_order", "get_orders"),
+    ),
     "policy": AgentSpec(
         name="policy",
-        role=("You answer policy questions ONLY from retrieved company policy documents, "
-              "always with citations. If the documents do not cover it, you say so."),
+        role=(
+            "You answer policy questions ONLY from retrieved company policy documents, "
+            "always with citations. Cover returns, shipping, warranty, and exchange."
+        ),
         tools=("retrieve_policy", "search_knowledge_base"),
     ),
     "refund": AgentSpec(
@@ -96,8 +121,16 @@ AGENTS: dict[str, AgentSpec] = {
     ),
     "recommendation": AgentSpec(
         name="recommendation",
-        role="You rank candidate products for a customer and explain the choice.",
-        tools=("get_recommendations", "get_customer_preferences", "compare_products", "get_product"),
+        role="You rank electronics for a customer (budget, specs, brand preference) and explain the choice using catalogue data.",
+        tools=("get_recommendations", "get_customer_preferences", "compare_products", "get_product", "search_products"),
+    ),
+    "admin": AgentSpec(
+        name="admin",
+        role=(
+            "You assist the shop owner / seller: list pending orders, approve or reject orders, "
+            "and summarize operational status. Use admin tools carefully."
+        ),
+        tools=("get_pending_orders", "approve_order", "reject_order", "get_order", "get_orders"),
     ),
     "single": AgentSpec(
         name="single",
@@ -105,13 +138,14 @@ AGENTS: dict[str, AgentSpec] = {
         tools=(
             "search_products", "get_product", "compare_products", "check_inventory",
             "get_customer", "get_customer_preferences",
-            "get_orders", "get_order", "cancel_order",
+            "get_orders", "get_order", "cancel_order", "create_order",
             "get_shipment", "track_shipment",
             "get_payment", "get_refund",
             "check_return_eligibility", "create_return",
             "create_support_ticket", "get_support_ticket",
             "get_active_promotions", "validate_coupon",
             "get_recommendations", "search_knowledge_base", "retrieve_policy",
+            "get_pending_orders", "approve_order", "reject_order",
         ),
     ),
 }

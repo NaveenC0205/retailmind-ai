@@ -95,10 +95,29 @@ def create_app() -> FastAPI:
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/shop/", status_code=302)
 
-    if s.static_dir.exists():
-        shop_dir = s.static_dir / "shop"
-        if shop_dir.exists():
-            app.mount("/shop", StaticFiles(directory=str(shop_dir), html=True), name="shop")
+    # React SPA at /shop (Vite build → backend/static/shop)
+    shop_dir = s.static_dir / "shop"
+    if shop_dir.exists():
+        from fastapi.responses import FileResponse
+
+        @app.get("/shop", include_in_schema=False)
+        @app.get("/shop/", include_in_schema=False)
+        async def shop_root():
+            return FileResponse(shop_dir / "index.html")
+
+        @app.get("/shop/{full_path:path}", include_in_schema=False)
+        async def shop_spa(full_path: str):
+            # Never shadow API
+            candidate = shop_dir / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            # SPA client routes (cart, product/:id, lab, …)
+            return FileResponse(shop_dir / "index.html")
+
+    # Legacy HTML storefront preserved for comparison / fallback tests
+    legacy = s.static_dir / "shop-legacy"
+    if legacy.exists():
+        app.mount("/shop-legacy", StaticFiles(directory=str(legacy), html=True), name="shop-legacy")
 
     return app
 

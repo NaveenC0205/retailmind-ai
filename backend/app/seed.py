@@ -116,7 +116,110 @@ PRODUCTS = [
     ("PR-X004", "SP-CASE-14", "Laptop Sleeve 14", "Spigen", "accessories", 1499, 4.1,
      {"size_in": 14, "material": "neoprene"},
      "Protective neoprene sleeve for 14-inch laptops."),
+    # --- CaratMind jewellery catalogue (CaratLane-inspired storefront) ---
+    ("PR-J001", "CL-ER-TRI", "Triangle Stud Earrings", "CaratMind", "earrings", 14726, 4.7,
+     {"metal": "18KT Gold", "stone": "Diamond", "occasion": "Daily Wear"},
+     "Geometric triangle studs in 18KT gold with delicate diamond pave."),
+    ("PR-J002", "CL-ER-ASH", "Ashvi Classic Kids Gold Earrings", "CaratMind", "earrings", 14865, 4.6,
+     {"metal": "22KT Gold", "stone": "None", "occasion": "Kids"},
+     "Lightweight traditional kids' gold earrings for everyday wear."),
+    ("PR-J003", "CL-ER-PRLH", "Latticed Pearl Hoop Earrings", "CaratMind", "earrings", 20127, 4.8,
+     {"metal": "18KT Gold", "stone": "Pearl", "occasion": "Evening"},
+     "Open lattice hoops finished with freshwater pearls."),
+    ("PR-J004", "CL-ER-JHM", "Urban Gleam Gold Jhumka", "CaratMind", "earrings", 35992, 4.9,
+     {"metal": "22KT Gold", "stone": "None", "occasion": "Wedding"},
+     "Contemporary jhumkas with layered gleam — festive favourites."),
+    ("PR-J005", "CL-RG-VNK", "Classic 9KT Gold Vanki Ring", "CaratMind", "rings", 10913, 4.5,
+     {"metal": "9KT Gold", "stone": "None", "occasion": "Daily Wear"},
+     "South-inspired vanki silhouette in lightweight 9KT gold."),
+    ("PR-J006", "CL-RG-HRZ", "Horizon 9KT Gold Ring", "CaratMind", "rings", 11353, 4.6,
+     {"metal": "9KT Gold", "stone": "None", "occasion": "Office"},
+     "Minimal horizon band — stackable and sleek."),
+    ("PR-J007", "CL-RG-CLS", "Clasp 9KT Gold Ring", "CaratMind", "rings", 11426, 4.5,
+     {"metal": "9KT Gold", "stone": "None", "occasion": "Gift"},
+     "Modern clasp motif ring in warm 9KT gold."),
+    ("PR-J008", "CL-NK-PRL", "Solitary Pearl Necklace", "CaratMind", "necklaces", 37041, 4.8,
+     {"metal": "18KT Gold", "stone": "Pearl", "occasion": "Wedding"},
+     "Single luminous pearl on a refined gold chain."),
+    ("PR-J009", "CL-PD-INF", "Infinity Silhouette Gemstone Pendant", "CaratMind", "pendants", 6871, 4.4,
+     {"metal": "18KT Gold", "stone": "Gemstone", "occasion": "Gift"},
+     "Infinity silhouette set with a soft pastel gemstone."),
+    ("PR-J010", "CL-PD-SPK", "Intertwine Spark 9KT Gold Pendant", "CaratMind", "pendants", 10428, 4.6,
+     {"metal": "9KT Gold", "stone": "Diamond", "occasion": "Anniversary"},
+     "Intertwined ribbons with a spark of diamond brilliance."),
+    ("PR-J011", "CL-PD-CST", "Cutout Crest 9KT Gold Pendant", "CaratMind", "pendants", 5775, 4.3,
+     {"metal": "9KT Gold", "stone": "None", "occasion": "Daily Wear"},
+     "Airy cutout crest pendant for everyday layering."),
+    ("PR-J012", "CL-BR-EVL", "Evil Eye Gold Bracelet", "CaratMind", "bracelets", 18990, 4.7,
+     {"metal": "18KT Gold", "stone": "Enamel", "occasion": "Gift"},
+     "Protective evil-eye motif bracelet in polished gold."),
+    ("PR-J013", "CL-BR-TNS", "Spark Tennis Bracelet", "CaratMind", "bracelets", 45990, 4.9,
+     {"metal": "18KT Gold", "stone": "Diamond", "occasion": "Evening"},
+     "Classic tennis line of brilliant-cut diamonds."),
+    ("PR-J014", "CL-BG-DLY", "Daily Wear Gold Bangles (Pair)", "CaratMind", "bangles", 28990, 4.6,
+     {"metal": "22KT Gold", "stone": "None", "occasion": "Daily Wear"},
+     "Slim traditional bangle pair in rich 22KT gold."),
+    ("PR-J015", "CL-MG-MOD", "Modern Diamond Mangalsutra", "CaratMind", "mangalsutra", 42990, 4.8,
+     {"metal": "18KT Gold", "stone": "Diamond", "occasion": "Wedding"},
+     "Contemporary black-bead mangalsutra with diamond drops."),
+    ("PR-J016", "CL-CH-A", "Alphabet A Cursive Gold Charm", "CaratMind", "charms", 7014, 4.5,
+     {"metal": "18KT Gold", "stone": "None", "occasion": "Gift"},
+     "Personalised cursive alphabet charm — collectible and giftable."),
 ]
+
+
+def _expand_electronics_catalogue(base: list) -> list:
+    """Ensure ≥30 SKUs per electronics category for catalogue / filter / agent tests."""
+    brands = {
+        "laptops": ["Lenovo", "Dell", "HP", "Asus", "Acer", "Apple", "MSI", "Samsung"],
+        "phones": ["Samsung", "Apple", "Google", "Xiaomi", "OnePlus", "Nothing", "Motorola", "Realme"],
+        "audio": ["Sony", "Apple", "Boat", "JBL", "Bose", "Sennheiser", "Noise", "Marshall"],
+        "monitors": ["Dell", "LG", "Samsung", "BenQ", "ASUS", "Acer", "ViewSonic", "MSI"],
+        "accessories": ["Logitech", "Anker", "Spigen", "Belkin", "Ugreen", "Baseus", "Sandisk", "Kingston"],
+    }
+    prefixes = {"laptops": "L", "phones": "P", "audio": "A", "monitors": "M", "accessories": "X"}
+    existing = {p[0] for p in base}
+    out = list(base)
+
+    for cat, prefix in prefixes.items():
+        have = sum(1 for p in out if p[4] == cat)
+        n = 1
+        while have < 30:
+            pid = f"PR-{prefix}G{n:03d}"
+            n += 1
+            if pid in existing:
+                continue
+            brand = brands[cat][(have + n) % len(brands[cat])]
+            price = 1999 + (have * 2371) % 160000
+            rating = round(3.6 + ((have * 7) % 14) / 10, 1)
+            if cat == "laptops":
+                attrs = {"ram_gb": [8, 16, 32][have % 3], "storage_gb": [256, 512, 1024][have % 3],
+                         "cpu": ["Core i5", "Core i7", "Ryzen 7", "M3"][have % 4]}
+                title = f"{brand} Notebook {14 + (have % 3)} Series {have + 1}"
+            elif cat == "phones":
+                attrs = {"ram_gb": [6, 8, 12][have % 3], "storage_gb": [128, 256][have % 2],
+                         "screen_in": round(6.1 + (have % 5) * 0.1, 1)}
+                title = f"{brand} Phone {have + 10}"
+            elif cat == "audio":
+                attrs = {"anc": have % 2 == 0, "battery_h": 12 + (have % 8) * 3}
+                title = f"{brand} Audio {['Buds', 'Headset', 'Speaker'][have % 3]} {have + 1}"
+            elif cat == "monitors":
+                attrs = {"size_in": [24, 27, 32][have % 3], "resolution": ["1920x1080", "2560x1440", "3840x2160"][have % 3],
+                         "panel": ["IPS", "VA", "OLED"][have % 3]}
+                title = f"{brand} Display {attrs['size_in']}\" {have + 1}"
+            else:
+                attrs = {"wireless": have % 2 == 0, "usb_c": True}
+                title = f"{brand} Gear {['Hub', 'Mouse', 'Keyboard', 'Cable', 'Case'][have % 5]} {have + 1}"
+            sku = f"SZ-{prefix}-{have + 1:03d}"
+            desc = f"{title} — catalogue item for filter, agent, and automation testing. Specs: {attrs}."
+            row = (pid, sku, title, brand, cat, price, min(rating, 5.0), attrs, desc)
+            out.append(row)
+            existing.add(pid)
+            have += 1
+    return out
+
+
+PRODUCTS = _expand_electronics_catalogue(PRODUCTS)
 
 
 async def seed(session, now: datetime | None = None) -> dict:

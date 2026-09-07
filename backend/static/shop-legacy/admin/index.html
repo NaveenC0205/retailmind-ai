@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - RetailMind</title>
+    <title>Owner Desk — CaratMind</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/shop/shop.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -22,7 +23,7 @@
         <div class="max-w-7xl mx-auto px-4">
             <div class="flex justify-between items-center h-16">
                 <div class="flex items-center space-x-4">
-                    <span class="text-2xl font-bold">⚙️ Admin Panel</span>
+                    <span class="text-2xl font-bold">CaratMind Owner</span>
                     <span class="bg-red-600 px-2 py-1 text-xs rounded">ADMIN</span>
                 </div>
                 <div class="flex items-center space-x-6">
@@ -30,7 +31,7 @@
                     <a href="/shop/admin/orders.html" class="hover:text-gray-300">Orders</a>
                     <a href="/shop/admin/products.html" class="hover:text-gray-300">Products</a>
                     <a href="/shop/admin/inventory.html" class="hover:text-gray-300">Inventory</a>
-                    <a href="/shop/" class="bg-indigo-600 px-3 py-1 rounded hover:bg-indigo-500">View Shop</a>
+                    <a href="/shop/" class="bg-amber-800 px-3 py-1 rounded hover:bg-amber-700">View Shop</a>
                     <button onclick="localStorage.clear(); location.href='/shop/login.html?role=owner'" class="bg-red-700 px-3 py-1 rounded hover:bg-red-600">Logout</button>
                 </div>
             </div>
@@ -250,5 +251,7 @@
 
         document.addEventListener('DOMContentLoaded', loadDashboard);
     </script>
+    <script src="/shop/common.js"></script>
+    <script src="/shop/chat-widget.js"></script>
 </body>
 </html>

@@ -49,7 +49,10 @@ from app.tools.contracts import registry
 from app.tools.gateway import ToolGateway, ToolResult
 from app.tracing import Trace, current_trace, new_trace, span
 
-MULTI_AGENT_INTENTS = {"order_delay_refund", "return_item"}
+MULTI_AGENT_INTENTS = {
+    "order_delay_refund", "return_item", "shopping_complex",
+    "gift_advice", "admin_ops", "checkout_help",
+}
 # order_list is a single-tool lookup; routing it to the agent loop is fine,
 # routing it to multi-agent would be four agents for one SELECT.
 RAG_INTENTS = {"policy"}
@@ -61,6 +64,21 @@ def classify_mode(user_text: str, requested: str = "auto") -> tuple[str, str]:
     on purpose -- a model call here would double latency for every turn and add
     a failure mode to the hottest path in the system."""
     intent = detect_intent(user_text)
+    text = (user_text or "").lower()
+
+    # Heuristics that expand multi-agent coverage for the jewellery shop chat.
+    if any(k in text for k in ("gift", "anniversary", "wedding", "recommend under", "budget")):
+        intent = intent if intent in MULTI_AGENT_INTENTS else "gift_advice"
+    if any(k in text for k in ("pending order", "approve order", "reject order", "shop owner", "seller")):
+        intent = "admin_ops"
+    if any(k in text for k in ("place order", "buy now", "checkout", "create order")):
+        intent = "checkout_help"
+    jewel = ("earring", "necklace", "pendant", "bangle", "mangalsutra", "charm", "jewellery", "jewelry")
+    if any(k in text for k in jewel) and any(
+        k in text for k in ("and", "also", "under", "return", "policy", "ship", "gift", "compare")
+    ):
+        intent = "shopping_complex"
+
     if requested and requested != "auto":
         return requested, intent
     if intent in MULTI_AGENT_INTENTS:
@@ -197,7 +215,11 @@ class Orchestrator:
 
     # ------------------------------------------------------------------
     async def run(
-        self, user_text: str, conversation_id: str = "", mode: str = "auto"
+        self,
+        user_text: str,
+        conversation_id: str = "",
+        mode: str = "auto",
+        event_sink=None,
     ) -> RunResult:
         started = time.perf_counter()
         trace: Trace = current_trace() or new_trace()
@@ -232,7 +254,7 @@ class Orchestrator:
             elif resolved_mode == "rag":
                 result = await self._run_rag(clean_text, facts, intent)
             elif resolved_mode == "multi_agent":
-                result = await self._run_multi(clean_text, facts, intent)
+                result = await self._run_multi(clean_text, facts, intent, event_sink=event_sink)
             else:
                 result = await self._run_single(clean_text, facts, intent)
 
@@ -328,71 +350,25 @@ class Orchestrator:
         answer, terminal, facts, approval_id = await self._agent_loop(spec, text, text, facts, intent)
         return answer, terminal, [], facts.get("citation_ids", []), facts, approval_id
 
-    async def _run_multi(self, text: str, facts: dict, intent: str):
-        supervisor = AGENTS["supervisor"]
-        sub_results: list[SubResult] = []
-        delegated: list[str] = []
-        approval_id = ""
-        terminal = TerminalState.COMPLETED
+    async def _run_multi(self, text: str, facts: dict, intent: str, event_sink=None):
+        """Multi-agent mode runs on LangGraph (LangChain multi-agent framework).
 
-        while True:
-            stop = self.budget.exceeded(self.steps, self.router.total_tokens_in + self.router.total_tokens_out)
-            if stop:
-                terminal = TerminalState.BUDGET_EXCEEDED
-                break
+        Supervisor + specialist StateGraph; specialists use the native tool loop
+        under mock/eval, or LangChain ``create_react_agent`` when OpenAI is live.
+        """
+        from app.agents.langgraph_runtime import run_langgraph_team
 
-            action = await self._decide(
-                supervisor, text, text, facts, intent,
-                extra_meta={
-                    "delegated_agents": delegated,
-                    "sub_results": [s.__dict__ for s in sub_results],
-                },
-            )
-            self.steps += 1
-            self._record_step(supervisor.name, action)
-
-            if action.type == "delegate" and action.agent in supervisor.delegates_to:
-                child = AGENTS[action.agent]
-                delegated.append(child.name)
-                with span("agent.delegate", **{"agent.parent": "supervisor", "agent.child": child.name}):
-                    child_answer, child_terminal, facts, child_approval = await self._agent_loop(
-                        child, action.task or text, text, facts, intent
-                    )
-                if child_approval:
-                    approval_id = child_approval
-                sub_results.append(
-                    SubResult(
-                        agent=child.name,
-                        task=action.task,
-                        summary=child_answer,
-                        steps=self.steps,
-                        terminal_state=child_terminal.value,
-                    )
-                )
-                if child_terminal is TerminalState.AWAITING_APPROVAL:
-                    terminal = TerminalState.AWAITING_APPROVAL
-                    break
-                continue
-
-            if action.is_terminal():
-                answer = action.content or " ".join(s.summary for s in sub_results)
-                return (
-                    answer,
-                    _terminal_for(action.type),
-                    sub_results,
-                    facts.get("citation_ids", []),
-                    facts,
-                    approval_id,
-                )
-            # Supervisor tried to do specialist work itself: not permitted.
-            with span("agent.violation", reason="supervisor_direct_tool_call"):
-                pass
-            break
-
-        answer = " ".join(s.summary for s in sub_results) or (
-            "I couldn't finish every part of that request."
+        team = await run_langgraph_team(
+            self, text, facts, intent, event_sink=event_sink
         )
-        return answer, terminal, sub_results, facts.get("citation_ids", []), facts, approval_id
+        return (
+            team.answer,
+            team.terminal,
+            team.sub_results,
+            team.facts.get("citation_ids", []),
+            team.facts,
+            team.approval_id,
+        )
 
     # ------------------------------------------------------------------
     # the loop

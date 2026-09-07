@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopping Cart — ShopZone</title>
+    <link rel="stylesheet" href="/shop/shop.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+      .cm-cart-layout { display: grid; grid-template-columns: 1fr 280px; gap: 24px; }
+      @media (max-width: 800px) { .cm-cart-layout { grid-template-columns: 1fr; } }
+      .cm-cart-item { display: grid; grid-template-columns: 100px 1fr auto; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--cm-line); }
+      .cm-subtotal { background: #fff; border: 1px solid var(--cm-line); padding: 24px; height: fit-content; position: sticky; top: 90px; }
+      .cm-modal-bg { display:none; position:fixed; inset:0; background:rgba(26,18,16,.45); z-index:200; align-items:center; justify-content:center; }
+      .cm-modal { background:#fff; padding:28px; max-width:420px; width:90%; border:1px solid var(--cm-line); }
+    </style>
+</head>
+<body>
+    <div id="shop-header"></div>
+
+    <div class="cm-container">
+        <h1 class="cm-section-title" style="text-align:left">Shopping Cart</h1>
+        <p class="cm-section-sub" style="text-align:left">Review items before checkout · order history stays in Your Orders</p>
+
+        <div id="cart-empty" style="display:none;background:#fff;border:1px solid var(--cm-line);padding:48px;text-align:center">
+            <i class="fas fa-shopping-cart" style="font-size:40px;color:var(--cm-gold);margin-bottom:16px"></i>
+            <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:500;margin:0 0 8px">Your ShopZone Cart is empty</h2>
+            <p style="color:var(--cm-muted)">Browse phones, laptops & electronics</p>
+            <a href="/shop/" class="cm-btn cm-btn-dark" style="display:inline-flex;margin-top:16px">Continue shopping</a>
+            <a href="/shop/wishlist.html" class="cm-btn cm-btn-outline" style="display:inline-flex;margin-top:16px;margin-left:8px">Saved for later</a>
+        </div>
+
+        <div id="cart-content" class="cm-cart-layout" style="display:none">
+            <div style="background:#fff;border:1px solid var(--cm-line);padding:8px 24px">
+                <div id="cart-items"></div>
+            </div>
+            <div class="cm-subtotal">
+                <div style="font-size:14px;margin-bottom:16px;color:var(--cm-muted)">
+                    Subtotal (<span id="item-count">0</span> items)
+                </div>
+                <div id="subtotal" style="font-size:24px;font-family:'Cormorant Garamond',Georgia,serif;margin-bottom:20px">₹0</div>
+                <button type="button" class="cm-btn cm-btn-dark" style="width:100%" onclick="proceedCheckout()">Proceed to Buy</button>
+                <button type="button" class="cm-btn cm-btn-outline" style="width:100%;margin-top:8px" onclick="MultiAgentChat.toggle(true)">Ask checkout agent</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="checkout-modal" class="cm-modal-bg">
+        <div class="cm-modal">
+            <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;font-weight:500;margin:0 0 20px">Place your order</h2>
+            <label style="font-size:12px;letter-spacing:.08em;text-transform:uppercase">Delivery address</label>
+            <textarea id="address" class="cm-input" rows="3">123 Main Street, Bangalore, Karnataka 560001</textarea>
+            <label style="font-size:12px;letter-spacing:.08em;text-transform:uppercase">Payment method</label>
+            <select id="payment" class="cm-input">
+                <option value="upi">UPI</option>
+                <option value="card">Credit/Debit Card</option>
+                <option value="cod">Cash on Delivery</option>
+            </select>
+            <div style="display:flex;gap:8px;margin-top:8px">
+                <button type="button" class="cm-btn cm-btn-outline" style="flex:1" onclick="closeCheckout()">Cancel</button>
+                <button type="button" class="cm-btn cm-btn-dark" style="flex:1" id="place-order-btn" onclick="placeOrder()">Place order</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shop-footer"></div>
+
+    <script src="/shop/common.js"></script>
+    <script src="/shop/chat-widget.js"></script>
+    <script>
+        let cart = [];
+
+        function renderCart() {
+            cart = Shop.getCart();
+            const empty = document.getElementById('cart-empty');
+            const content = document.getElementById('cart-content');
+
+            if (!cart.length) {
+                empty.style.display = 'block';
+                content.style.display = 'none';
+                return;
+            }
+
+            empty.style.display = 'none';
+            content.style.display = 'grid';
+
+            document.getElementById('cart-items').innerHTML = cart.map(item => `
+                <div class="cm-cart-item">
+                    <div class="cm-card-img">
+                        <img src="${Shop.productImageUrl({ id: item.id, title: item.title, category: '' })}" alt="${item.title}" style="width:100%;height:100%;object-fit:cover">
+                    </div>
+                    <div>
+                        <a href="/shop/product.html?id=${item.id}" class="cm-card-title" style="font-size:22px">${item.title}</a>
+                        <div style="color:var(--cm-success);font-size:12px;margin:4px 0">In stock</div>
+                        <div style="margin:8px 0">${Shop.formatPrice(item.price)}</div>
+                        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+                            <label style="font-size:12px">Qty
+                                <select onchange="updateQty('${item.id}', this.value)" class="cm-input" style="width:auto;display:inline-block;margin:0 0 0 6px;padding:6px">
+                                    ${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}" ${n===item.qty?'selected':''}>${n}</option>`).join('')}
+                                </select>
+                            </label>
+                            <button type="button" onclick="removeItem('${item.id}')" style="background:none;border:none;color:var(--cm-gold-deep);font-size:12px;cursor:pointer">Remove</button>
+                        </div>
+                    </div>
+                    <div style="font-weight:500">${Shop.formatPrice(item.price * item.qty)}</div>
+                </div>
+            `).join('');
+
+            const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+            document.getElementById('subtotal').textContent = Shop.formatPrice(subtotal);
+            document.getElementById('item-count').textContent = cart.reduce((s, i) => s + i.qty, 0);
+        }
+
+        function updateQty(id, qty) {
+            cart = Shop.getCart();
+            const item = cart.find(i => i.id === id);
+            if (item) { item.qty = parseInt(qty); Shop.saveCart(cart); renderCart(); }
+        }
+
+        function removeItem(id) {
+            Shop.saveCart(Shop.getCart().filter(i => i.id !== id));
+            renderCart();
+        }
+
+        function proceedCheckout() {
+            if (!Shop.isLoggedIn()) {
+                if (confirm('Sign in to place your order?')) {
+                    window.location.href = '/shop/login.html?redirect=/shop/cart.html';
+                }
+                return;
+            }
+            document.getElementById('checkout-modal').style.display = 'flex';
+        }
+
+        function closeCheckout() {
+            document.getElementById('checkout-modal').style.display = 'none';
+        }
+
+        async function placeOrder() {
+            const btn = document.getElementById('place-order-btn');
+            btn.disabled = true;
+            btn.textContent = 'Placing…';
+
+            try {
+                const res = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: Shop.getAuthHeaders(true),
+                    body: JSON.stringify({
+                        items: cart.map(i => ({ product_id: i.id, qty: i.qty, unit_price_inr: i.price })),
+                        address: document.getElementById('address').value,
+                        payment_method: document.getElementById('payment').value
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Order failed');
+
+                Shop.saveCart([]);
+                closeCheckout();
+                window.location.href = '/shop/orders.html?placed=' + data.order_id;
+            } catch (e) {
+                alert('Error: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Place order';
+            }
+        }
+
+        Shop.mountLayout('cart');
+        renderCart();
+    </script>
+</body>
+</html>
