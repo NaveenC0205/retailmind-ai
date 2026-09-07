@@ -249,7 +249,8 @@ async def get_customer_preferences(session, principal, args: dict) -> dict:
 # order
 # ----------------------------------------------------------------------
 
-def _order_row(o: Order) -> dict:
+def _order_row(o: Order, titles: dict[str, str] | None = None) -> dict:
+    titles = titles or {}
     return {
         "order_id": o.id,
         "status": o.status,
@@ -259,12 +260,22 @@ def _order_row(o: Order) -> dict:
             {
                 "order_item_id": i.id,
                 "product_id": i.product_id,
+                "title": titles.get(i.product_id, i.product_id),
                 "qty": i.qty,
                 "unit_price_inr": i.unit_price_inr,
             }
             for i in (o.items or [])
         ],
     }
+
+
+async def _titles_for(session, product_ids: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for pid in {p for p in product_ids if p}:
+        p = await session.get(Product, pid)
+        if p:
+            out[pid] = p.title
+    return out
 
 
 async def get_orders(session, principal, args: dict) -> dict:
@@ -276,14 +287,17 @@ async def get_orders(session, principal, args: dict) -> dict:
             .limit(int(args.get("limit", 5)))
         )
     ).scalars().all()
-    return {"count": len(rows), "orders": [_order_row(o) for o in rows]}
+    pids = [i.product_id for o in rows for i in (o.items or [])]
+    titles = await _titles_for(session, pids)
+    return {"count": len(rows), "orders": [_order_row(o, titles) for o in rows]}
 
 
 async def get_order(session, principal, args: dict) -> dict:
     o = await session.get(Order, args["order_id"])
     if not o:
         raise ToolFailure("not_found", f"No order with id {args['order_id']}")
-    return _order_row(o)
+    titles = await _titles_for(session, [i.product_id for i in (o.items or [])])
+    return _order_row(o, titles)
 
 
 async def cancel_order(session, principal, args: dict) -> dict:
@@ -355,13 +369,49 @@ async def create_order(session, principal, args: dict) -> dict:
         status="captured",
     )
     session.add(payment)
-    
+
+    item_out = []
+    for oi in order_items:
+        p = await session.get(Product, oi.product_id)
+        item_out.append(
+            {
+                "product_id": oi.product_id,
+                "title": p.title if p else oi.product_id,
+                "qty": oi.qty,
+                "unit_price_inr": oi.unit_price_inr,
+            }
+        )
+
+    method = payment.method
     return {
         "order_id": order_id,
         "status": "placed",
         "total_inr": total_inr,
+        "payment_method": method,
+        "payment_id": payment.id,
+        "payment_status": payment.status,
         "items_count": len(order_items),
-        "message": f"Order {order_id} created successfully. Total: Rs {total_inr}",
+        "items": item_out,
+        "message": (
+            f"Order {order_id} placed. Total Rs {total_inr}. "
+            f"Paid via {method} ({payment.status})."
+        ),
+    }
+
+
+PAYMENT_METHODS = (
+    {"id": "upi", "label": "UPI", "description": "Google Pay, PhonePe, Paytm — instant capture"},
+    {"id": "card", "label": "Credit / Debit card", "description": "Visa, Mastercard, RuPay"},
+    {"id": "cod", "label": "Cash on delivery", "description": "Pay the courier in cash when the parcel arrives"},
+)
+
+
+async def list_payment_methods(session, principal, args: dict) -> dict:
+    """Catalogue of checkout payment options the agent must offer the shopper."""
+    return {
+        "methods": list(PAYMENT_METHODS),
+        "default": "upi",
+        "message": "Choose UPI, Card, or Cash on delivery (COD) to complete checkout.",
     }
 
 
@@ -803,7 +853,7 @@ def _register_all() -> None:
     R(ToolContract("get_orders", "List the calling customer's own recent orders, newest first, with status, total and line items.", GetOrdersIn, ("orders:read",), get_orders, ownership=own_customer_arg))
     R(ToolContract("get_order", "Fetch one order by order_id, including its line items.", OrderIdIn, ("orders:read",), get_order, ownership=own_order))
     R(ToolContract("cancel_order", "Cancel an order that has not yet shipped. Fails safely if it has.", CancelOrderIn, ("orders:write",), cancel_order, side_effects=True, ownership=own_order, hitl=hitl_high_value_cancel, cost_class="write_financial"))
-    R(ToolContract("create_order", "Create a new order for the customer with the specified products and quantities. Returns order ID and total.", CreateOrderIn, ("orders:write",), create_order, side_effects=True, ownership=own_customer_arg, cost_class="write_financial"))
+    R(ToolContract("create_order", "Place an order for the logged-in customer. Requires customer_id, items [{product_id, qty}], and payment_method: upi, card, or cod. Returns order id, total, payment method and line items.", CreateOrderIn, ("orders:write",), create_order, side_effects=True, ownership=own_customer_arg, cost_class="write_financial"))
 
     R(ToolContract("get_shipment", "Fetch the shipment for an order: carrier, AWB, status, promised date and lateness.", OrderIdIn, ("shipping:read",), get_shipment, ownership=own_order))
     R(ToolContract("track_shipment", "Fetch the full scan history for a shipment by shipment_id.", ShipmentIdIn, ("shipping:read",), track_shipment, ownership=own_shipment))
@@ -819,6 +869,7 @@ def _register_all() -> None:
 
     R(ToolContract("get_active_promotions", "List every promotion currently active site-wide, with its code, discount and minimum order value.", EmptyIn, ("promotions:read",), get_active_promotions))
     R(ToolContract("validate_coupon", "Check whether a coupon code is valid for an order total, and what it is worth.", CouponIn, ("promotions:read",), validate_coupon))
+    R(ToolContract("list_payment_methods", "List checkout payment options the customer can choose: UPI, credit/debit card, and cash on delivery (COD).", EmptyIn, ("promotions:read",), list_payment_methods))
 
     R(ToolContract("get_recommendations", "Recommend products for the calling customer, applying their stored preferences.", RecommendationsIn, ("recommendations:read",), get_recommendations, ownership=own_customer_arg, untrusted_fields=("description",)))
 

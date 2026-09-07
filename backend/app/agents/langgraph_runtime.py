@@ -146,10 +146,17 @@ async def _run_specialist_langchain(orch, agent_name: str, task: str, user_text:
         return f"{agent_name} has no tools configured.", TerminalState.PARTIAL, ""
 
     model = _chat_openai()
+    logged = orch.principal.kind == "customer" and bool(orch.principal.customer_id)
+    cid = orch.principal.customer_id or "guest"
+    extra = (
+        f"\nAuthenticated customer_id={cid}. Logged in={logged}. "
+        "If placing an order, call list_payment_methods unless they already named UPI/card/COD, "
+        "then create_order with that payment_method. Guests cannot create_order."
+    )
     agent = create_react_agent(
         model=model,
         tools=tools,
-        prompt=spec.role + "\nRespond with a concise final answer for the supervisor.",
+        prompt=spec.role + extra + "\nRespond with a concise final answer for the supervisor.",
         name=agent_name,
     )
     with span("langgraph.react", **{"agent.name": agent_name}):

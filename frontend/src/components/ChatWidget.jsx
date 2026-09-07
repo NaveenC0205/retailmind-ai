@@ -1,33 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { chatStream, fetchAgentStatus, isAdmin } from '../api'
+import { chatStream, fetchAgentStatus, isAdmin, isLoggedIn } from '../api'
 
-const PERSONAS = {
-  customer: {
+function customerCopy(loggedIn, name) {
+  if (loggedIn) {
+    return {
+      title: 'ShopZone Assistant',
+      sub: 'Your personal shopper · orders, checkout, payments',
+      welcome: `Hi${name ? ` ${name}` : ''}! I’m your logged-in agent. I can show your orders, check payment status, and place items you name after you pick UPI, Card, or Cash on delivery.`,
+      suggests: [
+        'Show my recent orders',
+        'What payment was used on my latest order?',
+        'Buy this with UPI',
+        'What payment methods can I use?',
+      ],
+    }
+  }
+  return {
     title: 'ShopZone Assistant',
-    sub: 'Customer agents · catalogue + RAG policy',
-    welcome: 'Hi! I am a multi-agent shopper assistant. I search the catalogue, retrieve return/warranty policy, track orders, and compare specs.',
+    sub: 'Guest · sign in to order',
+    welcome: 'Hi! I can search the catalogue and explain UPI / Card / COD. Sign in so I can show your orders and place items for you.',
     suggests: [
       'Laptops under 80000 with 16GB RAM',
-      'Compare phones rating 4.5+',
+      'What payment methods can I use?',
       'What is your return policy?',
-      'Track my latest order',
+      'Sign in to place an order',
     ],
-  },
+  }
+}
+
+const PERSONAS = {
   product: {
     title: 'Product Specialist',
-    sub: 'Product-page agent · specs, stock, warranty RAG',
-    welcome: 'Ask about this product’s specs, similar items, stock, or warranty/return policy. Answers are grounded in catalogue + retrieved documents.',
+    sub: 'This product · stock, warranty, buy',
+    welcome: 'Ask about this product’s specs, stock, warranty, or say “buy this with UPI” after you sign in.',
     suggests: [
       'Compare with similar products',
-      'Is this good under my budget?',
       'Check inventory for this item',
-      'What is the warranty on this?',
+      'What payment methods can I use?',
+      'Buy this with UPI',
     ],
   },
   owner: {
     title: 'Seller Ops Concierge',
     sub: 'Owner agents · orders, inventory, policy',
-    welcome: 'Owner multi-agent desk: pending orders, approve/reject, low stock, and ops policy. Isolated from the customer bot.',
+    welcome: 'Owner multi-agent desk: pending orders, approve/reject, low stock, and ops policy.',
     suggests: [
       'List pending orders',
       'Approve the oldest pending order',
@@ -42,24 +58,43 @@ export default function ChatWidget({
   productContext = null,
   forceHide = false,
 }) {
-  const cfg = PERSONAS[persona] || PERSONAS.customer
-  const storageKey = `sz-chat-${persona}-${productContext?.id || 'global'}`
+  const [loggedIn, setLoggedIn] = useState(() => isLoggedIn())
+  const name = typeof window !== 'undefined' ? (localStorage.getItem('customer_name') || '') : ''
+  const cfg = persona === 'customer'
+    ? customerCopy(loggedIn, name)
+    : (PERSONAS[persona] || customerCopy(loggedIn, name))
+  const storageKey = `sz-chat-${persona}-${productContext?.id || 'global'}-${loggedIn ? 'in' : 'out'}`
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState(null)
-  const [msgs, setMsgs] = useState(() => {
+  const [msgs, setMsgs] = useState(() => [{ role: 'bot', text: cfg.welcome }])
+  const [conv, setConv] = useState(null)
+  const endRef = useRef(null)
+
+  useEffect(() => {
+    const sync = () => setLoggedIn(isLoggedIn())
+    window.addEventListener('storage', sync)
+    window.addEventListener('shopzone-store', sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener('shopzone-store', sync)
+    }
+  }, [])
+
+  useEffect(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
-      if (saved?.msgs?.length) return saved.msgs
-    } catch { /* ignore */ }
-    return [{ role: 'bot', text: cfg.welcome }]
-  })
-  const [conv, setConv] = useState(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem(storageKey) || 'null')?.conv || null
-    } catch { return null }
-  })
-  const endRef = useRef(null)
+      if (saved?.msgs?.length) {
+        setMsgs(saved.msgs)
+        setConv(saved.conv || null)
+      } else {
+        setMsgs([{ role: 'bot', text: cfg.welcome }])
+        setConv(null)
+      }
+    } catch {
+      setMsgs([{ role: 'bot', text: cfg.welcome }])
+    }
+  }, [storageKey, cfg.welcome])
 
   useEffect(() => {
     sessionStorage.setItem(storageKey, JSON.stringify({ msgs, conv }))
@@ -76,7 +111,7 @@ export default function ChatWidget({
   const liveLabel = useMemo(() => {
     if (!status) return 'Connecting…'
     if (status.llm_live) return `Live · ${status.llm_backend} · ${status.llm_model}`
-    return 'Demo mock · add GROQ_API_KEY on Vercel for live agents'
+    return 'Demo mock · agents still place orders after you sign in'
   }, [status])
 
   if (forceHide) return null
@@ -87,8 +122,12 @@ export default function ChatWidget({
   async function send(text) {
     const raw = (text || input).trim()
     if (!raw) return
+    if (persona === 'customer' && !loggedIn && /sign in/i.test(raw)) {
+      window.location.href = '/shop/login'
+      return
+    }
     setInput('')
-    setMsgs((m) => [...m, { role: 'user', text: raw }, { role: 'bot', text: `${cfg.title} planning…` }])
+    setMsgs((m) => [...m, { role: 'user', text: raw }, { role: 'bot', text: `${cfg.title} working…` }])
     try {
       const final = await chatStream(raw, conv, (ev) => {
         if (ev.type === 'agent' && ev.data?.type === 'agent_start') {
@@ -107,7 +146,7 @@ export default function ChatWidget({
         }
       }, { persona, productId: productContext?.id })
       if (final?.conversation_id) setConv(final.conversation_id)
-      const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 120)}`).join('\n')
+      const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 140)}`).join('\n')
       const cites = (final?.citations || []).slice(0, 4)
       const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
       const answer = (final?.answer || 'No answer') + (sub ? `\n\n${sub}` : '') + citeLine
@@ -160,7 +199,7 @@ export default function ChatWidget({
           ))}
         </div>
         <div className="sz-chat-input">
-          <input data-testid={`chat-input-${persona}`} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask the agents…" />
+          <input data-testid={`chat-input-${persona}`} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask your agent…" />
           <button type="button" className="sz-btn sz-btn-blue" data-testid={`chat-send-${persona}`} onClick={() => send()}>Send</button>
         </div>
       </div>

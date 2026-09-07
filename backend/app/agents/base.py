@@ -90,16 +90,29 @@ AGENTS: dict[str, AgentSpec] = {
     ),
     "order": AgentSpec(
         name="order",
-        role="You look up the customer's own orders and shipments, and cancel unshipped orders.",
-        tools=("get_orders", "get_order", "cancel_order", "get_shipment", "track_shipment"),
+        role=(
+            "You look up THIS logged-in customer's orders only. "
+            "Call get_orders first (pass their customer_id). For a specific order call get_order, "
+            "get_payment (method, amount, capture status), get_shipment and track_shipment. "
+            "Summarize order id, items, total, payment method/status, and delivery. Cancel only unshipped orders."
+        ),
+        tools=("get_orders", "get_order", "cancel_order", "get_shipment", "track_shipment", "get_payment"),
     ),
     "checkout": AgentSpec(
         name="checkout",
         role=(
-            "You help place orders for the authenticated customer using create_order. "
-            "Confirm product ids and quantities from prior search/facts before ordering."
+            "You are the checkout agent for a logged-in shopper. "
+            "1) Resolve the item with search_products or get_product (use product_id from the page/facts). "
+            "2) Call list_payment_methods and present UPI, Card, and Cash on delivery unless the customer already chose one. "
+            "3) If they are logged in AND named a payment method, call create_order with customer_id, items [{product_id, qty}], and payment_method (upi|card|cod). "
+            "If they are not logged in, do not create an order — tell them to sign in. "
+            "Confirm title, qty, total INR, and payment in the final answer."
         ),
-        tools=("search_products", "get_product", "check_inventory", "create_order", "get_orders"),
+        tools=(
+            "search_products", "get_product", "check_inventory",
+            "list_payment_methods", "validate_coupon",
+            "create_order", "get_orders", "get_payment",
+        ),
     ),
     "policy": AgentSpec(
         name="policy",
@@ -155,6 +168,7 @@ AGENTS: dict[str, AgentSpec] = {
             "create_support_ticket", "get_support_ticket",
             "get_active_promotions", "validate_coupon",
             "get_recommendations", "search_knowledge_base", "retrieve_policy",
+            "list_payment_methods",
             "get_pending_orders", "approve_order", "reject_order",
         ),
     ),

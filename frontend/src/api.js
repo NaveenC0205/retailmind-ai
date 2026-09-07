@@ -27,10 +27,12 @@ export function saveSession(data) {
   localStorage.setItem('customer_name', data.name);
   localStorage.setItem('customer_email', data.email);
   localStorage.setItem('is_admin', String(data.is_admin));
+  window.dispatchEvent(new Event('shopzone-store'));
 }
 
 export function logout() {
   ['auth_token', 'customer_id', 'customer_name', 'customer_email', 'is_admin'].forEach((k) => localStorage.removeItem(k));
+  window.dispatchEvent(new Event('shopzone-store'));
 }
 
 export async function fetchProducts() {

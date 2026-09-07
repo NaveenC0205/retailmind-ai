@@ -69,9 +69,11 @@ def supervisor_hint(persona: str) -> str:
             "Ground every spec claim in catalogue tools or retrieved documents."
         )
     return (
-        "You supervise the CUSTOMER shopping team. Use shopping/product/recommendation "
-        "for catalogue questions, policy (RAG retrieve_policy) for returns/warranty/shipping, "
-        "order/refund/checkout for account actions. Always retrieve policy before stating it."
+        "You supervise the CUSTOMER shopping team. After login, order details go to the order "
+        "specialist (get_orders/get_payment). Buying an item the customer named goes to checkout: "
+        "find the SKU, show payment options (UPI/Card/COD), then create_order only when they pick a method. "
+        "Guests cannot place orders — tell them to sign in. "
+        "Use shopping/product/recommendation for browse, policy (RAG) for returns/warranty."
     )
 
 

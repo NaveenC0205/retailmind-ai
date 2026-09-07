@@ -45,6 +45,8 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                     "list my orders", "all my orders")),
     ("order_status", ("where is my order", "order status", "track", "my order")),
     ("refund_status", ("refund", "money back")),
+    ("checkout_help", ("buy now", "place order", "checkout", "want to buy", "buy this",
+                       "pay with", "payment method", "payment option", "how do i pay")),
     ("promotion", ("coupon", "promo", "discount", "offer")),
     ("shopping", ("laptop", "phone", "headphone", "find me", "looking for", "under ", "compare",
                   "recommend", "suggest", "best ")),
@@ -84,6 +86,17 @@ def extract_budget_inr(text: str) -> Optional[int]:
             return int(m.group(1).replace(",", ""))
         except ValueError:
             return None
+    return None
+
+
+def extract_payment_method(text: str) -> Optional[str]:
+    low = (text or "").lower()
+    if "cod" in low or "cash on delivery" in low or "cash-on-delivery" in low:
+        return "cod"
+    if "upi" in low or "gpay" in low or "phonepe" in low or "paytm" in low:
+        return "upi"
+    if "card" in low or "credit" in low or "debit" in low or "visa" in low:
+        return "card"
     return None
 
 
@@ -200,6 +213,7 @@ SINGLE_AGENT_PLANS: dict[str, list[str]] = {
     "refund_status": ["get_orders", "get_payment", "get_refund"],
     "promotion": ["get_active_promotions"],
     "policy": ["retrieve_policy"],
+    "checkout_help": ["search_products", "list_payment_methods", "create_order"],
 }
 
 # Plans by SPECIALIST agent. A delegated sub-agent must not inherit the
@@ -213,6 +227,8 @@ AGENT_PLANS: dict[str, list[str]] = {
     "product": ["search_products", "compare_products"],
     "shopping": ["search_products", "compare_products"],
     "recommendation": ["get_recommendations"],
+    "checkout": ["search_products", "list_payment_methods", "create_order"],
+    "admin": ["get_pending_orders"],
 }
 
 # A specialist's plan narrows when the parent request does not need its full
@@ -222,6 +238,8 @@ AGENT_PLANS_BY_INTENT: dict[tuple[str, str], list[str]] = {
     ("order", "order_list"): ["get_orders"],
     ("order", "return_item"): ["get_orders", "get_order"],
     ("order", "refund_status"): ["get_orders", "get_order"],
+    ("order", "order_status"): ["get_order", "get_payment", "get_shipment", "track_shipment"],
+    ("checkout", "checkout_help"): ["search_products", "list_payment_methods", "create_order"],
 }
 
 REFUND_CUES = ("refund", "money back", "compensat", "reimburse")
@@ -273,6 +291,15 @@ SUPERVISOR_PLANS: dict[str, list[tuple[str, str]]] = {
     "shopping": [
         ("product", "Search and compare candidate products against the constraints."),
         ("recommendation", "Rank the candidates and recommend one with reasons."),
+    ],
+    "checkout_help": [
+        ("checkout", "Find the product the customer named, list payment methods, and place the order if they chose UPI, card, or COD."),
+    ],
+    "order_list": [
+        ("order", "List this customer's recent orders with status, items and totals."),
+    ],
+    "order_status": [
+        ("order", "Look up the order, payment method and shipment for this customer."),
     ],
 }
 
@@ -386,6 +413,15 @@ class MockLLM:
         # ownership check on a specific record -- which is the interesting case.
         if extract_order_id(user_text) and "get_orders" in plan and "get_order" in plan:
             plan = [t for t in plan if t != "get_orders"]
+
+        pay = extract_payment_method(user_text) or facts.get("payment_method")
+        if "create_order" in plan:
+            if not (meta.get("customer_id") or facts.get("customer_id")):
+                plan = [t for t in plan if t != "create_order"]
+            elif not pay:
+                plan = [t for t in plan if t != "create_order"]
+            elif not (facts.get("product_id") or facts.get("candidate_product_ids")):
+                plan = [t for t in plan if t != "create_order"]
 
         for tool in plan:
             if tool in executed:
@@ -517,11 +553,23 @@ class MockLLM:
             return {"code": (facts.get("coupon_code") or "SAVE10")}
         if tool == "get_customer_preferences":
             return {"customer_id": customer_id}
+        if tool == "list_payment_methods":
+            return {}
+        if tool == "create_order":
+            pid = facts.get("product_id") or (facts.get("candidate_product_ids") or [None])[0]
+            method = extract_payment_method(user_text) or facts.get("payment_method") or "upi"
+            return {
+                "customer_id": customer_id,
+                "payment_method": method,
+                "items": [{"product_id": pid or "", "qty": 1}],
+            }
+        if tool in ("get_pending_orders", "list_low_stock"):
+            return {}
         return {}
 
     # -- answer composition -------------------------------------------
     SPECIALISTS = ("order", "policy", "refund", "support", "product", "shopping",
-                   "recommendation")
+                   "recommendation", "checkout", "admin", "inventory")
 
     def _compose_single(self, intent: str, meta: dict, agent: str = "single") -> str:
         facts: dict = meta.get("facts") or {}
@@ -549,6 +597,24 @@ class MockLLM:
                 f"I would pick {titles[0]} for development work on the balance of "
                 f"memory, build quality and price."
             )
+        if intent == "checkout_help":
+            methods = facts.get("payment_methods") or []
+            labels = ", ".join(m.get("label") or m.get("id") for m in methods) or "UPI, Card, Cash on delivery"
+            if facts.get("order_id"):
+                return (
+                    f"Placed order {facts['order_id']} for INR {facts.get('order_total_inr', 0):,}. "
+                    f"Payment: {facts.get('payment_method', 'upi')} ({facts.get('payment_status', 'captured')})."
+                )
+            titles = facts.get("candidate_titles") or []
+            pick = titles[0] if titles else "the item you named"
+            if not (meta.get("customer_id") or facts.get("logged_in")):
+                return (
+                    f"I can check {pick} out with {labels}. Sign in first so I can place the order on your account."
+                )
+            return (
+                f"Ready to order {pick}. Payment options: {labels}. "
+                "Reply with UPI, Card, or Cash on delivery to place it."
+            )
         if intent == "promotion" and facts.get("promotions"):
             return "Active offers: " + ", ".join(facts["promotions"][:4]) + "."
         if facts.get("summary"):
@@ -560,9 +626,24 @@ class MockLLM:
 
     def _compose_specialist(self, agent: str, facts: dict, chunks: list) -> str:
         if agent == "order":
+            if facts.get("orders") and not facts.get("order_id"):
+                lines = [f"{o['order_id']} - {o['status']}, INR {o['total_inr']:,}"
+                         for o in facts["orders"][:5]]
+                return "Your recent orders: " + "; ".join(lines) + "."
             if facts.get("order_id"):
                 return self._order_summary(facts)
             return "I could not find an order matching that on your account."
+        if agent == "checkout":
+            methods = facts.get("payment_methods") or []
+            labels = ", ".join(m.get("label") or m.get("id") for m in methods) or "UPI, Card, COD"
+            if facts.get("order_id"):
+                return (
+                    f"Order {facts['order_id']} placed. Total INR {facts.get('order_total_inr', 0):,}. "
+                    f"Paid via {facts.get('payment_method', 'upi')}."
+                )
+            titles = facts.get("candidate_titles") or []
+            pick = titles[0] if titles else "that product"
+            return f"{pick} is in stock. Pay with {labels} — tell me which one to use."
         if agent == "policy":
             if chunks:
                 return self._cite(chunks)
@@ -596,6 +677,10 @@ class MockLLM:
         bits = [f"Order {facts['order_id']} is currently {facts.get('order_status', 'unknown')}."]
         if facts.get("shipment_status"):
             bits.append(f"The shipment is {facts['shipment_status']}.")
+        if facts.get("payment_method"):
+            bits.append(f"Payment was {facts['payment_method']}"
+                        + (f" ({facts['payment_status']})" if facts.get("payment_status") else "")
+                        + ".")
         if facts.get("days_late"):
             bits.append(f"It is {facts['days_late']} days past the promised date.")
         if facts.get("shipment_exception"):

@@ -74,7 +74,8 @@ class CreateOrderItemIn(BaseModel):
 class CreateOrderIn(BaseModel):
     customer_id: str = Field(min_length=1)
     items: list[CreateOrderItemIn] = Field(min_length=1, max_length=20)
-    payment_method: str = Field(default="upi")
+    payment_method: str = Field(default="upi", description="upi, card, or cod")
+    address: str = Field(default="")
 
 
 class ShipmentIdIn(BaseModel):

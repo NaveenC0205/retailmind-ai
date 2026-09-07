@@ -71,7 +71,11 @@ def classify_mode(user_text: str, requested: str = "auto") -> tuple[str, str]:
         intent = intent if intent in MULTI_AGENT_INTENTS else "gift_advice"
     if any(k in text for k in ("pending order", "approve order", "reject order", "shop owner", "seller", "restock", "low stock", "inventory")):
         intent = "admin_ops"
-    if any(k in text for k in ("place order", "buy now", "checkout", "create order")):
+    if any(k in text for k in (
+        "place order", "buy now", "checkout", "create order", "want to buy",
+        "buy this", "buy the", "purchase this", "pay with", "payment method",
+        "payment option", "how do i pay", "cash on delivery",
+    )):
         intent = "checkout_help"
     if any(k in text for k in ("return policy", "warranty", "shipping policy", "exchange policy")):
         intent = "policy"
@@ -147,8 +151,20 @@ def absorb(facts: dict, tool: str, data: dict) -> dict:
         if events:
             facts["last_scan"] = events[-1]["description"]
             facts.setdefault("shipment_exception", data.get("exception_code"))
+    elif tool == "create_order":
+        facts["order_id"] = data.get("order_id", facts.get("order_id"))
+        facts["order_status"] = data.get("status")
+        facts["order_total_inr"] = data.get("total_inr")
+        facts["payment_method"] = data.get("payment_method")
+        facts["payment_id"] = data.get("payment_id")
+        facts["placed_items"] = data.get("items") or []
+    elif tool == "list_payment_methods":
+        facts["payment_methods"] = data.get("methods") or []
+        facts["payment_default"] = data.get("default")
     elif tool == "get_payment":
         facts["payment_id"] = data.get("payment_id")
+        facts["payment_method"] = data.get("method")
+        facts["payment_status"] = data.get("status")
         facts["payment_amount_inr"] = data.get("amount_inr")
     elif tool == "check_return_eligibility":
         facts["return_eligible"] = data.get("eligible")
@@ -219,6 +235,7 @@ class Orchestrator:
         )
         self.persist = persist
         self.run_id = new_id("RUN")
+        self.conversation_id = ""
         self.gateway = ToolGateway(
             session, principal, run_id=self.run_id, hitl_enabled=hitl_enabled
         )
@@ -237,6 +254,7 @@ class Orchestrator:
     ) -> RunResult:
         started = time.perf_counter()
         trace: Trace = current_trace() or new_trace()
+        self.conversation_id = conversation_id or ""
 
         with span("request", kind="server", **{"principal.kind": self.principal.kind}):
             # 1 -- input guardrails
@@ -268,6 +286,7 @@ class Orchestrator:
                     clean_text = f"[Product context id={self.product_id}] {clean_text}"
             if self.persona == "owner" and "[Shop owner" not in clean_text:
                 clean_text = f"[Shop owner dashboard] {clean_text}"
+            facts = await self._prime_customer(facts)
             facts = await self._prime_rag(clean_text, facts)
 
             # Shop chat always asks for multi_agent; still run dedicated RAG
@@ -398,6 +417,33 @@ class Orchestrator:
         self.steps += 1
         terminal = TerminalState.COMPLETED if chunks else TerminalState.PARTIAL
         return completion.text, terminal, [], facts["citation_ids"], facts, ""
+
+    async def _prime_customer(self, facts: dict) -> dict:
+        """Mark login state. Order rows are fetched by the order agent on demand
+        so priming cannot pollute evaluated trajectories."""
+        cid = self.principal.customer_id
+        logged = self.principal.kind == "customer" and bool(cid)
+        facts["logged_in"] = logged
+        if cid:
+            facts["customer_id"] = cid
+        return facts
+
+    async def _recent_turns(self, limit: int = 8) -> list[tuple[str, str]]:
+        if not self.conversation_id:
+            return []
+        from sqlalchemy import select
+
+        from app.models import Message
+
+        rows = (
+            await self.session.execute(
+                select(Message)
+                .where(Message.conversation_id == self.conversation_id)
+                .order_by(Message.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        return [(m.role, m.content) for m in reversed(list(rows))]
 
     async def _prime_rag(self, text: str, facts: dict) -> dict:
         """Always retrieve trusted policy (+ product KB) so every agentic turn is grounded."""
@@ -577,8 +623,22 @@ class Orchestrator:
         if self.principal.customer_id:
             context.add(
                 Provenance.SYSTEM,
-                f"The current customer is {self.principal.customer_id}. "
-                "Always pass this as customer_id when a tool requires it.",
+                f"The current customer is {self.principal.customer_id}"
+                + (f" ({facts.get('customer_name')})" if facts.get("customer_name") else "")
+                + ". Always pass this as customer_id when a tool requires it. "
+                + ("They are logged in." if facts.get("logged_in") else "They are a guest — do not create_order."),
+            )
+            if facts.get("orders"):
+                brief = "; ".join(
+                    f"{o.get('order_id')} {o.get('status')} INR {o.get('total_inr')}"
+                    for o in (facts.get("orders") or [])[:4]
+                )
+                context.add(Provenance.SYSTEM, "Recent orders on file: " + brief)
+        else:
+            context.add(
+                Provenance.SYSTEM,
+                "This shopper is not logged in. You may search the catalogue and list payment methods, "
+                "but you must not call create_order or get_orders. Ask them to sign in.",
             )
         if extra_meta and extra_meta.get("supervisor_hint"):
             context.add(Provenance.SYSTEM, extra_meta["supervisor_hint"])
@@ -590,6 +650,11 @@ class Orchestrator:
                 + ". For policy/warranty/returns always include the policy specialist.",
             )
         await self.memory.as_fragments(context)
+        for role, content in await self._recent_turns():
+            if role == "user":
+                context.add(Provenance.USER, content[:800])
+            else:
+                context.add(Provenance.SYSTEM, f"Prior assistant turn: {content[:800]}")
         for c in (facts.get("chunks") or [])[:4]:
             context.add(Provenance.RETRIEVED, f"{c['heading']}\n{c['content']}", source_id=c["id"])
         for tr in self.gateway.calls[-4:]:
