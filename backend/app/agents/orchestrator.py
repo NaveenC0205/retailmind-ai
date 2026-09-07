@@ -345,12 +345,12 @@ class Orchestrator:
                     )
 
             # 2 -- dispatch
-            # The storefront always sends multi_agent. Greetings and open chat
-            # should talk like a real assistant, not spin a specialist graph.
+            # The storefront always sends multi_agent. Only true greetings skip
+            # the specialist graph — typed product/order asks must still run tools.
             simple_orders = await self._guided_my_orders(route_text, facts, intent, event_sink)
             if simple_orders:
                 result = simple_orders
-            elif intent == "smalltalk" and self.persona != "owner":
+            elif self._is_greeting(clean_text) and self.persona != "owner":
                 result = await self._run_chat(clean_text, facts)
             elif resolved_mode == "chat":
                 result = await self._run_chat(clean_text, facts)
@@ -435,16 +435,32 @@ class Orchestrator:
             )
         await self.memory.as_fragments(context)
         context.add(Provenance.USER, text)
-        completion = await self.router.complete(
-            CompletionRequest(
-                prompt=context.render(),
-                system=get_prompt("chat_system", self.prompt_version),
-                purpose="chat",
-                meta={"user_text": text, "facts": facts},
-            )
+        fallback = (
+            "I can search the ShopZone catalogue, check return or warranty policy, "
+            "and — after you sign in — show your orders or place one with UPI, Card, or COD. "
+            "What would you like to do?"
+            if not facts.get("logged_in")
+            else
+            "I can search the catalogue, check policy, list your orders, or place an item "
+            "after you pick UPI, Card, or Cash on delivery. What should I do next?"
         )
+        try:
+            completion = await asyncio.wait_for(
+                self.router.complete(
+                    CompletionRequest(
+                        prompt=context.render(),
+                        system=get_prompt("chat_system", self.prompt_version),
+                        purpose="chat",
+                        meta={"user_text": text, "facts": facts},
+                    )
+                ),
+                timeout=8,
+            )
+            answer = (completion.text or "").strip() or fallback
+        except Exception:  # noqa: BLE001 — live smalltalk must not hang the widget
+            answer = fallback
         self.steps += 1
-        return completion.text, TerminalState.COMPLETED, [], [], facts, ""
+        return answer, TerminalState.COMPLETED, [], [], facts, ""
 
     async def _run_rag(self, text: str, facts: dict, intent: str):
         from app.rag.retrieve import Retriever
@@ -597,8 +613,11 @@ class Orchestrator:
             "policy",
         }:
             return False
-        if intent in {"shopping", "gift_advice", "shopping_complex", "promotion"}:
-            return True
+        if intent in {"shopping", "gift_advice", "shopping_complex", "promotion", "smalltalk"}:
+            if intent == "smalltalk" and self._is_greeting(text):
+                return False
+            if intent in {"shopping", "gift_advice", "shopping_complex", "promotion"}:
+                return True
         return any(
             k in low
             for k in (
@@ -607,12 +626,50 @@ class Orchestrator:
                 "find me",
                 "show me",
                 "looking for",
+                "looking to",
                 "dikhao",
                 "compare",
                 "laptop",
                 "phone",
+                "iphone",
+                "macbook",
+                "monitor",
+                "headphone",
+                "earbud",
+                "airpod",
+                "tablet",
+                "mouse",
+                "keyboard",
+                "speaker",
+                "camera",
+                "watch",
+                "tv",
+                "cheap",
+                "under ",
+                "available",
+                "in stock",
+                "i need",
+                "i want",
+                "any good",
             )
         )
+
+    @staticmethod
+    def _is_greeting(text: str) -> bool:
+        low = (text or "").strip().lower().strip("!?. ")
+        if not low or len(low) > 90:
+            return False
+        exact = {
+            "hi", "hey", "hello", "yo", "hi there", "hello there", "hey there",
+            "thanks", "thank you", "ok", "okay", "help", "namaste",
+        }
+        if low in exact:
+            return True
+        return low.startswith((
+            "hi,", "hey,", "hello,", "hi ", "hey ", "hello ",
+            "what can you", "who are you", "good morning", "good evening",
+            "good afternoon", "how can you help",
+        ))
 
     def _format_catalogue_answer(self, products: list, facts: dict, text: str) -> str:
         understood = (facts.get("understood_query") or text or "").strip()
@@ -835,7 +892,8 @@ class Orchestrator:
                 "check order", "check orders", "show order", "show orders",
                 "see order", "see orders", "list order", "my orders",
                 "order history", "all my order", "irders", "track my",
-                "latest order", "my latest",
+                "latest order", "my latest", "existing order", "order details",
+                "order detail", "order detils", "my existing", "check my order",
             )
         )
 
@@ -1325,15 +1383,28 @@ class Orchestrator:
         from app.agents.langgraph_runtime import run_langgraph_team
         from app.agents.teams import specialists_for
 
-        team = await run_langgraph_team(
-            self,
-            text,
-            facts,
-            intent,
-            event_sink=event_sink,
-            specialists=specialists_for(self.persona),
-            persona=self.persona,
-        )
+        try:
+            team = await asyncio.wait_for(
+                run_langgraph_team(
+                    self,
+                    text,
+                    facts,
+                    intent,
+                    event_sink=event_sink,
+                    specialists=specialists_for(self.persona),
+                    persona=self.persona,
+                ),
+                timeout=16,
+            )
+        except asyncio.TimeoutError:
+            fallback = await self._fast_catalogue_browse(text, facts, "shopping", event_sink)
+            if fallback:
+                return fallback
+            answer = (
+                "I am still working through that. Try naming a product to search, "
+                "asking for the return policy, or — if you are signed in — your recent orders."
+            )
+            return answer, TerminalState.PARTIAL, [], [], facts, ""
         return (
             team.answer,
             team.terminal,

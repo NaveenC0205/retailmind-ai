@@ -64,6 +64,29 @@ const TEAM_AGENTS = {
   owner: ['admin', 'inventory', 'product', 'policy', 'order', 'support'],
 }
 
+const AGENT_STATUS = {
+  order: 'Looking up your orders',
+  shopping: 'Searching the catalogue',
+  product: 'Checking product details',
+  policy: 'Checking store policy',
+  checkout: 'Preparing checkout',
+  refund: 'Checking refunds',
+  support: 'Working on your request',
+  recommendation: 'Finding recommendations',
+  inventory: 'Checking inventory',
+  admin: 'Working on shop ops',
+}
+
+function statusFromEvent(data) {
+  const agent = String(data?.agent || '')
+  const task = String(data?.task || '').trim()
+  const base = AGENT_STATUS[agent] || (agent ? `${agent} is working` : 'Working on that')
+  if (task && task.length < 48 && !base.toLowerCase().includes(task.toLowerCase())) {
+    return `${base} · ${task}`
+  }
+  return base
+}
+
 export default function ChatWidget({
   persona = 'customer',
   productContext = null,
@@ -85,8 +108,12 @@ export default function ChatWidget({
   const [hydratedKey, setHydratedKey] = useState('')
   const [liveAgents, setLiveAgents] = useState([])
   const [lastMeta, setLastMeta] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [pendingStatus, setPendingStatus] = useState('Working on that')
   const endRef = useRef(null)
   const sendRef = useRef(() => {})
+  const inflightRef = useRef(false)
+  const inputRef = useRef('')
 
   useEffect(() => {
     const sync = () => setLoggedIn(isLoggedIn())
@@ -125,7 +152,7 @@ export default function ChatWidget({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [msgs, open])
+  }, [msgs, open, busy, pendingStatus])
 
   useEffect(() => {
     fetchAgentStatus().then(setStatus)
@@ -154,46 +181,40 @@ export default function ChatWidget({
   }
 
   function newChat() {
+    if (inflightRef.current) return
     setConv(null)
     setMsgs([{ role: 'bot', text: cfg.welcome }])
     setSuggests(cfg.suggests)
     sessionStorage.removeItem(storageKey)
   }
 
+  function setDraft(value) {
+    inputRef.current = value
+    setInput(value)
+  }
+
   async function send(text) {
-    const raw = (text || input).trim()
-    if (!raw) return
-    if (persona === 'customer' && !loggedIn && /sign in/i.test(raw)) {
+    const raw = String(text != null && text !== '' ? text : inputRef.current || input).trim()
+    if (!raw || inflightRef.current) return
+    if (persona === 'customer' && !loggedIn && /sign in/i.test(raw) && raw.length < 40) {
       window.location.href = '/shop/login'
       return
     }
-    setInput('')
+    inflightRef.current = true
+    setBusy(true)
+    setDraft('')
     setLiveAgents([])
-    setMsgs((m) => [...m, { role: 'user', text: raw }, { role: 'bot', text: `${cfg.title} working…` }])
+    setPendingStatus('Working on that')
+    setMsgs((m) => [...m, { role: 'user', text: raw }])
     try {
       const final = await chatStream(raw, conv, (ev) => {
         if (ev.type === 'agent' && ev.data?.type === 'agent_start') {
           setLiveAgents((a) => Array.from(new Set([...a, ev.data.agent])))
-          setMsgs((m) => {
-            const copy = [...m]
-            copy[copy.length - 1] = { role: 'bot', text: `${ev.data.agent} running…` }
-            return copy
-          })
-        }
-        if (ev.type === 'agent' && ev.data?.type === 'agent_done') {
-          setMsgs((m) => {
-            const copy = [...m]
-            const snippet = String(ev.data.summary || '').slice(0, 80)
-            copy[copy.length - 1] = { role: 'bot', text: snippet ? `${ev.data.agent} done. ${snippet}` : `${ev.data.agent} done.` }
-            return copy
-          })
+          setPendingStatus(statusFromEvent(ev.data))
         }
         if (ev.type === 'agent' && ev.data?.type === 'graph_start') {
-          setMsgs((m) => {
-            const copy = [...m]
-            copy[copy.length - 1] = { role: 'bot', text: `${persona} team: ${(ev.data.specialists || []).join(', ')}` }
-            return copy
-          })
+          const team = (ev.data.specialists || []).filter(Boolean).join(', ')
+          setPendingStatus(team ? `Agents working · ${team}` : 'ShopZone team is working')
         }
         if (ev.type === 'error') {
           throw new Error(ev.data?.message || 'Chat failed')
@@ -215,17 +236,13 @@ export default function ChatWidget({
       const cites = (final?.citations || []).slice(0, 4)
       const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
       const answer = (rawAnswer || 'I could not finish that reply. Try once more — search, return policy, or your orders.') + (sub && rawAnswer ? `\n\n${sub}` : '') + citeLine
-      setMsgs((m) => {
-        const copy = [...m]
-        copy[copy.length - 1] = { role: 'bot', text: answer }
-        return copy
-      })
+      setMsgs((m) => [...m, { role: 'bot', text: answer }])
     } catch (e) {
-      setMsgs((m) => {
-        const copy = [...m]
-        copy[copy.length - 1] = { role: 'bot', text: String(e.message || e) }
-        return copy
-      })
+      setMsgs((m) => [...m, { role: 'bot', text: String(e.message || e) }])
+    } finally {
+      inflightRef.current = false
+      setBusy(false)
+      setLiveAgents([])
     }
   }
 
@@ -252,7 +269,7 @@ export default function ChatWidget({
         <div className="sz-chat-head">
           <div className="sz-chat-head-row">
             <strong>{cfg.title}</strong>
-            <button type="button" className="sz-chat-new" data-testid={`chat-new-${persona}`} onClick={newChat}>New chat</button>
+            <button type="button" className="sz-chat-new" data-testid={`chat-new-${persona}`} disabled={busy} onClick={newChat}>New chat</button>
           </div>
           <div style={{ fontSize: 11, opacity: 0.7 }}>{cfg.sub}</div>
           <div className={`sz-chat-live ${status?.llm_live ? 'on' : 'off'}`} data-testid={`chat-live-${persona}`}>{liveLabel}</div>
@@ -266,24 +283,52 @@ export default function ChatWidget({
         </div>
         <div className="sz-agent-chips" data-testid={`chat-agents-${persona}`}>
           {(TEAM_AGENTS[persona] || TEAM_AGENTS.customer).map((a) => (
-            <span key={a} className={`sz-agent-chip ${(liveAgents.includes(a) || lastMeta?.agents?.includes(a)) ? 'on' : ''}`}>{a}</span>
+            <span
+              key={a}
+              className={`sz-agent-chip ${liveAgents.includes(a) ? 'live' : ''} ${lastMeta?.agents?.includes(a) ? 'on' : ''}`}
+            >
+              {a}
+            </span>
           ))}
         </div>
         <div className="sz-chat-msgs" data-testid={`chat-messages-${persona}`}>
           {msgs.map((m, i) => (
             <div key={i} className={`sz-msg ${m.role}`}>{m.text}</div>
           ))}
+          {busy && (
+            <div className="sz-msg bot sz-msg-pending" data-testid={`chat-pending-${persona}`} aria-live="polite" aria-busy="true">
+              <span className="sz-typing" aria-hidden="true"><i /><i /><i /></span>
+              <span className="sz-pending-copy">
+                <span className="sz-pending-label">{pendingStatus}</span>
+                <span className="sz-pending-hint">Processing… one request at a time</span>
+              </span>
+            </div>
+          )}
           <div ref={endRef} />
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 10px 8px' }}>
           {suggests.map((s) => (
-            <button key={s} type="button" className="sz-btn sz-btn-ghost" style={{ padding: '6px 10px', fontSize: 11 }} data-testid={`chat-suggest-${persona}`} onClick={() => send(s)}>{s}</button>
+            <button key={s} type="button" className="sz-btn sz-btn-ghost" style={{ padding: '6px 10px', fontSize: 11 }} data-testid={`chat-suggest-${persona}`} disabled={busy} onClick={() => send(s)}>{s}</button>
           ))}
         </div>
-        <div className="sz-chat-input">
-          <input data-testid={`chat-input-${persona}`} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask your agent…" />
-          <button type="button" className="sz-btn sz-btn-blue" data-testid={`chat-send-${persona}`} onClick={() => send()}>Send</button>
-        </div>
+        <form
+          className="sz-chat-input"
+          onSubmit={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            send()
+          }}
+        >
+          <input
+            data-testid={`chat-input-${persona}`}
+            value={input}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={busy ? 'Waiting for the current reply…' : 'Ask anything — type and press Enter'}
+            disabled={busy}
+            autoComplete="off"
+          />
+          <button type="submit" className="sz-btn sz-btn-blue" data-testid={`chat-send-${persona}`} disabled={busy}>{busy ? '…' : 'Send'}</button>
+        </form>
       </div>
     </>
   )

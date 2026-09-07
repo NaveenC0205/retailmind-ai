@@ -44,7 +44,8 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("order_list", ("my orders", "recent orders", "order history", "my recent orders",
                     "list my orders", "all my orders", "check order", "check orders",
                     "show order", "show orders", "see order", "see orders",
-                    "list order", "your orders")),
+                    "list order", "your orders", "existing order", "order details",
+                    "order detail", "order detils", "my existing")),
     ("order_status", ("where is my order", "order status", "track", "my order")),
     ("refund_status", ("refund", "money back")),
     ("checkout_help", ("buy now", "place order", "place an order", "i want to order",
@@ -56,7 +57,9 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("promotion", ("coupon", "promo", "discount", "offer")),
     ("shopping", ("laptop", "phone", "iphone", "oiphone", "macbook", "airpod", "headphone",
                   "search for", "find me", "looking for", "under ", "compare", "recommend",
-                  "suggest", "best ", "prices", "price of", "catalogue")),
+                  "suggest", "best ", "prices", "price of", "catalogue", "mouse", "keyboard",
+                  "monitor", "earbud", "tablet", "speaker", "camera", "watch", " i need",
+                  "i want a", "any good")),
 ]
 
 

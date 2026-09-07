@@ -76,6 +76,40 @@ async def test_guest_typo_search_returns_iphone_prices(client):
     assert "₹" in answer or "69900" in answer.replace(",", "")
 
 
+async def test_existing_order_details_lists_logged_in_orders(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "check my existing order details", "mode": "multi_agent"},
+        headers=NAVEEN,
+    )).json()
+    low = body["answer"].lower()
+    assert "hold on" not in low
+    assert "please hold" not in low
+    assert "or-" in low
+    assert "₹" in body["answer"] or "order" in low
+
+
+async def test_guest_order_details_do_not_leak_history(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "check my existing order details", "mode": "multi_agent"},
+    )).json()
+    low = body["answer"].lower()
+    assert "sign in" in low
+    assert "or-200" not in low
+    assert "hold on" not in low
+
+
+async def test_typed_product_question_returns_catalogue(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "I need a wireless mouse", "mode": "multi_agent"},
+    )).json()
+    assert body["answer"].strip()
+    assert "hold on" not in body["answer"].lower()
+    assert "₹" in body["answer"] or "mouse" in body["answer"].lower()
+
+
 async def test_laptop_ram_search_returns_a_priced_list(client):
     body = (await client.post(
         "/api/chat",
