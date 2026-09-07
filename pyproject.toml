@@ -35,6 +35,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 # Vercel FastAPI deploy (https://vercel.com/docs/frameworks/backend/fastapi)
+# Prefer root main.py; backend.app.main also works after path bootstrap.
 [tool.vercel]
 entrypoint = "main:app"
 

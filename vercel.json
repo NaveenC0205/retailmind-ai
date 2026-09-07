@@ -4,6 +4,10 @@
     "main.py": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "backend/app/main.py": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   }
 }

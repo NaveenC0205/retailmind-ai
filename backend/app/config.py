@@ -117,7 +117,18 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     s = Settings()
-    s.var_dir.mkdir(parents=True, exist_ok=True)
+    # Vercel (and similar) ship a read-only filesystem except /tmp. If our
+    # configured var_dir is not writable, fall back so import/startup cannot crash.
+    try:
+        s.var_dir.mkdir(parents=True, exist_ok=True)
+        probe = s.var_dir / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+    except OSError:
+        tmp = Path("/tmp/retailmind")
+        tmp.mkdir(parents=True, exist_ok=True)
+        object.__setattr__(s, "var_dir", tmp)
+        object.__setattr__(s, "database_url", "sqlite+aiosqlite:////tmp/retailmind.db")
     return s
 
 

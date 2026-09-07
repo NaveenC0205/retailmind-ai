@@ -1,6 +1,9 @@
 """FastAPI application assembly."""
 from __future__ import annotations
 
+# Path bootstrap for Vercel `backend.app.main` entrypoint (must run first).
+import app as _app_pkg  # noqa: F401
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -44,15 +47,18 @@ async def _bootstrap_if_empty() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await create_all()
-    if get_settings().auto_bootstrap:
-        try:
+    try:
+        await create_all()
+        if get_settings().auto_bootstrap:
             await _bootstrap_if_empty()
-        except Exception as exc:  # noqa: BLE001 - never fail to start over seeding
-            log.warning("auto-bootstrap skipped: %s", exc)
-    log.info("retailmind ready")
+        log.info("retailmind ready")
+    except Exception as exc:  # noqa: BLE001 - never fail to start over seeding
+        log.exception("startup degraded: %s", exc)
     yield
-    await dispose()
+    try:
+        await dispose()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def create_app() -> FastAPI:
@@ -76,22 +82,23 @@ def create_app() -> FastAPI:
     if s.rate_limit_per_min or s.daily_request_limit or s.access_password:
         app.add_middleware(
             GatewayMiddleware,
-            rate_per_min=s.rate_limit_per_min or 10_000,
+            rate_limit_per_min=s.rate_limit_per_min or 10_000,
             burst=s.rate_limit_burst,
             daily_limit=s.daily_request_limit,
             access_password=s.access_password,
         )
     app.include_router(router)
 
+    # Always register / so the site never 404s if static mount fails.
+    @app.get("/", include_in_schema=False)
+    async def index():
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/shop/", status_code=302)
+
     if s.static_dir.exists():
         shop_dir = s.static_dir / "shop"
         if shop_dir.exists():
             app.mount("/shop", StaticFiles(directory=str(shop_dir), html=True), name="shop")
-
-            @app.get("/", include_in_schema=False)
-            async def index():
-                from fastapi.responses import RedirectResponse
-                return RedirectResponse(url="/shop/", status_code=302)
 
     return app
 
