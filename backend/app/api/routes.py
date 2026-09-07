@@ -62,7 +62,12 @@ async def health():
         "status": "ok",
         "profile": s.profile,
         "llm_provider": s.llm_provider,
+        "llm_backend": s.llm_backend,
+        "llm_model": s.llm_model if s.llm_backend != "mock" else "mock-1",
+        "llm_live": s.llm_backend != "mock" and bool(s.openai_api_key or s.llm_provider == "ollama"),
         "embedding_provider": s.embedding_provider,
+        "agentic": True,
+        "teams": ["customer", "product", "owner"],
         "tools": len(registry.names()),
         "prompt_versions": available_versions(),
         "public_demo": s.public_demo,
@@ -163,6 +168,8 @@ class ChatRequest(BaseModel):
     mode: str = "auto"
     prompt_version: str = "v1"
     learn: bool = True
+    persona: str = "customer"  # customer | product | owner
+    product_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -184,6 +191,9 @@ class ChatResponse(BaseModel):
     cost_inr: float
     latency_ms: int
     framework: str = ""
+    persona: str = "customer"
+    llm_backend: str = ""
+    llm_live: bool = False
 
 
 @router.post("/api/chat", response_model=ChatResponse, tags=["chat"])
@@ -212,7 +222,13 @@ async def chat(
         )
     )
 
-    orch = Orchestrator(session, principal, prompt_version=body.prompt_version)
+    orch = Orchestrator(
+        session,
+        principal,
+        prompt_version=body.prompt_version,
+        persona=body.persona,
+        product_id=body.product_id or "",
+    )
     result = await orch.run(body.message, conversation_id=conversation_id, mode=body.mode)
 
     session.add(
@@ -230,7 +246,8 @@ async def chat(
     await session.commit()
     await flush(trace)
 
-    framework = "langgraph" if result.mode == "multi_agent" else ""
+    framework = "langgraph" if result.mode == "multi_agent" else ("rag" if result.mode == "rag" else "")
+    s = get_settings()
     return ChatResponse(
         answer=result.answer,
         conversation_id=conversation_id,
@@ -250,6 +267,9 @@ async def chat(
         cost_inr=result.cost_inr,
         latency_ms=result.latency_ms,
         framework=framework,
+        persona=orch.persona,
+        llm_backend=s.llm_backend,
+        llm_live=s.llm_backend != "mock",
     )
 
 
@@ -287,7 +307,13 @@ async def chat_stream(
                     provenance="USER",
                 )
             )
-            orch = Orchestrator(session, principal, prompt_version=body.prompt_version)
+            orch = Orchestrator(
+                session,
+                principal,
+                prompt_version=body.prompt_version,
+                persona=body.persona,
+                product_id=body.product_id or "",
+            )
             result = await orch.run(
                 body.message,
                 conversation_id=conversation_id,
@@ -321,8 +347,12 @@ async def chat_stream(
                         "steps": result.steps,
                         "trajectory": result.trajectory,
                         "sub_results": result.sub_results,
-                        "framework": "langgraph" if result.mode == "multi_agent" else "",
+                        "citations": result.citations,
+                        "framework": "langgraph" if result.mode == "multi_agent" else result.mode,
                         "latency_ms": result.latency_ms,
+                        "persona": orch.persona,
+                        "llm_backend": get_settings().llm_backend,
+                        "llm_live": get_settings().llm_backend != "mock",
                     },
                 }
             )

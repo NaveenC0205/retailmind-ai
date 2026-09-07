@@ -14,7 +14,9 @@ services:
     healthCheckPath: /health
     envVars:
       - key: LLM_PROVIDER
-        value: mock            # switch to "openai" and add a key below
+        value: auto            # Groq/Gemini/OpenAI from dashboard keys
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
       - key: EMBEDDING_PROVIDER
         value: hashed
       - key: PUBLIC_DEMO
@@ -25,14 +27,9 @@ services:
         value: "0"             # set a number once a real model is behind it
       - key: DATABASE_URL
         value: sqlite+aiosqlite:////data/retailmind.db
-      # Uncomment for a real model. NEVER commit the key -- set it in the
-      # Render dashboard, and set DAILY_REQUEST_LIMIT at the same time.
-      # - key: OPENAI_API_KEY
+      # Add GROQ_API_KEY in the Render dashboard (sync: false) for live agents.
+      # - key: GROQ_API_KEY
       #   sync: false
-      # - key: OPENAI_BASE_URL
-      #   value: https://api.groq.com/openai/v1
-      # - key: OPENAI_MODEL
-      #   value: llama-3.3-70b-versatile
     disk:
       name: data
       mountPath: /data

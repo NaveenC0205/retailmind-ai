@@ -42,6 +42,7 @@ from app.tools.contracts import (
     GetOrdersIn,
     GetPendingOrdersIn,
     KBSearchIn,
+    LowStockIn,
     OrderIdIn,
     PaymentIdIn,
     ProductIdIn,
@@ -746,6 +747,37 @@ async def reject_order(session, principal, args: dict) -> dict:
     }
 
 
+async def list_low_stock(session, principal, args: dict) -> dict:
+    """Seller inventory: products whose available qty is at or below threshold."""
+    threshold = int(args.get("threshold", 20))
+    limit = int(args.get("limit", 10))
+    rows = (await session.execute(select(Inventory))).scalars().all()
+    by_product: dict[str, int] = {}
+    warehouses: dict[str, list] = {}
+    for r in rows:
+        avail = max(0, int(r.qty_available) - int(r.qty_reserved or 0))
+        by_product[r.product_id] = by_product.get(r.product_id, 0) + avail
+        warehouses.setdefault(r.product_id, []).append(
+            {"warehouse": r.warehouse, "available": avail}
+        )
+    low = [(pid, qty) for pid, qty in by_product.items() if qty <= threshold]
+    low.sort(key=lambda x: x[1])
+    items = []
+    for pid, qty in low[:limit]:
+        p = await session.get(Product, pid)
+        items.append(
+            {
+                "product_id": pid,
+                "title": p.title if p else pid,
+                "brand": p.brand if p else "",
+                "category": p.category if p else "",
+                "available": qty,
+                "warehouses": warehouses.get(pid, []),
+            }
+        )
+    return {"threshold": threshold, "count": len(items), "items": items}
+
+
 # ======================================================================
 # registration
 # ======================================================================
@@ -794,8 +826,9 @@ def _register_all() -> None:
     R(ToolContract("retrieve_policy", "Retrieve company policy. Only trusted, signed policy documents are searched.", KBSearchIn, ("kb:read",), retrieve_policy, untrusted_fields=("content",)))
     
     R(ToolContract("get_pending_orders", "List orders pending review (admin only). Returns orders with specified status, defaults to 'placed'.", GetPendingOrdersIn, ("orders:read",), get_pending_orders))
-    R(ToolContract("approve_order", "Approve an order and move it to packed status (admin only).", ApproveOrderIn, ("orders:write",), approve_order, side_effects=True, cost_class="write_financial"))
-    R(ToolContract("reject_order", "Reject/cancel an order with a reason (admin only).", RejectOrderIn, ("orders:write",), reject_order, side_effects=True, cost_class="write_financial"))
+    R(ToolContract("approve_order", "Approve an order and move it to packed status (admin only).", ApproveOrderIn, ("orders:write",), approve_order, side_effects=True, cost_class="write_financial", ownership=own_order))
+    R(ToolContract("reject_order", "Reject/cancel an order with a reason (admin only).", RejectOrderIn, ("orders:write",), reject_order, side_effects=True, cost_class="write_financial", ownership=own_order))
+    R(ToolContract("list_low_stock", "List catalogue products whose available warehouse stock is at or below a threshold. Seller inventory specialist.", LowStockIn, ("products:read",), list_low_stock))
 
 
 _register_all()

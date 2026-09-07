@@ -85,22 +85,34 @@ export async function fetchOrders() {
   return data.orders || [];
 }
 
-export async function chatStream(message, conversationId, onEvent) {
+export async function fetchAgentStatus() {
+  try {
+    const res = await fetch(`${API}/health`);
+    return await res.json();
+  } catch {
+    return { llm_live: false, llm_backend: 'mock', llm_model: 'mock-1' };
+  }
+}
+
+export async function chatStream(message, conversationId, onEvent, opts = {}) {
+  const payload = {
+    message,
+    mode: 'multi_agent',
+    conversation_id: conversationId || undefined,
+    learn: true,
+    persona: opts.persona || 'customer',
+    product_id: opts.productId || undefined,
+  };
   const res = await fetch(`${API}/api/chat/stream`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({
-      message,
-      mode: 'multi_agent',
-      conversation_id: conversationId || undefined,
-      learn: true,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok || !res.body) {
     const fallback = await fetch(`${API}/api/chat`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ message, mode: 'multi_agent', conversation_id: conversationId || undefined }),
+      body: JSON.stringify(payload),
     });
     const data = await fallback.json();
     if (!fallback.ok) throw new Error(data.detail || 'Chat failed');

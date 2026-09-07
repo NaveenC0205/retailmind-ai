@@ -261,6 +261,15 @@ img { max-width: 100%; display: block; }
   overflow: hidden;
 }
 .sz-chat-head { background: #000; color: #fff; padding: 14px 16px; }
+.sz-chat-live {
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  opacity: .8;
+}
+.sz-chat-live.on { color: #7dffb3; }
+.sz-chat-live.off { color: #ffd37d; }
 .sz-chat-msgs { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .sz-msg { max-width: 88%; padding: 10px 12px; border-radius: 16px; font-size: 13px; white-space: pre-wrap; }
 .sz-msg.user { align-self: flex-end; background: var(--blue); color: #fff; }

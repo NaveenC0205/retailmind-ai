@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # mock    : deterministic, offline, zero cost. Used by CI.
     # ollama  : local models on your Mac (http://localhost:11434).
     # openai  : any OpenAI-compatible endpoint (OpenAI, Groq, vLLM, LM Studio).
+    # groq    : free Groq Llama (maps to openai-compat).
+    # gemini  : free Google Gemini (OpenAI-compat endpoint).
+    # auto    : pick Groq → Gemini → OpenAI from whichever key is set.
     llm_provider: str = "mock"
     llm_model: str = "mock-1"
     llm_fallback_provider: str = "mock"
@@ -68,6 +71,16 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+
+    # Free hosted models — paste the key in Vercel; no code change needed.
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+    # Filled by bind_hosted_llm(): groq | gemini | openai | mock | ollama
+    llm_backend: str = "mock"
 
     # --- embeddings ----------------------------------------------------
     # hashed : deterministic offline embedder (default; reproducible evals)
@@ -119,6 +132,76 @@ class Settings(BaseSettings):
         return self.database_url.startswith("sqlite")
 
 
+def _hosted_deploy() -> bool:
+    return bool(
+        os.environ.get("VERCEL")
+        or os.environ.get("VERCEL_ENV")
+        or os.environ.get("RENDER")
+        or os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("FLY_APP_NAME")
+    )
+
+
+def bind_hosted_llm(s: Settings) -> Settings:
+    """Map Groq / Gemini / OpenAI keys onto the OpenAI-compatible adapter.
+
+    On Vercel, adding GROQ_API_KEY (recommended free model) is enough even if
+    LLM_PROVIDER is still ``mock``. Local CI keeps mock because tests set it.
+    """
+    groq = (s.groq_api_key or "").strip()
+    gemini = (s.gemini_api_key or "").strip()
+    openai_key = (s.openai_api_key or "").strip()
+    provider = (s.llm_provider or "mock").strip().lower()
+    base = (s.openai_base_url or "").lower()
+
+    if openai_key.startswith("gsk_") and not groq:
+        groq = openai_key
+    if "groq.com" in base and openai_key and not groq:
+        groq = openai_key
+
+    wants_auto = provider in {"auto", "free"}
+    can_promote = wants_auto or provider in {"groq", "gemini"} or (
+        provider == "mock" and _hosted_deploy() and bool(groq or gemini or openai_key)
+    )
+
+    def _as_openai(key: str, url: str, model: str, backend: str) -> None:
+        object.__setattr__(s, "llm_provider", "openai")
+        object.__setattr__(s, "openai_api_key", key)
+        object.__setattr__(s, "openai_base_url", url.rstrip("/"))
+        object.__setattr__(s, "openai_model", model)
+        object.__setattr__(s, "llm_model", model)
+        object.__setattr__(s, "llm_backend", backend)
+
+    if provider == "groq" or (can_promote and groq and provider not in {"gemini", "openai", "ollama"}):
+        if groq:
+            _as_openai(groq, "https://api.groq.com/openai/v1", s.groq_model, "groq")
+            return s
+    if provider == "gemini" or (can_promote and gemini and provider not in {"openai", "ollama"}):
+        if gemini:
+            _as_openai(gemini, s.gemini_base_url, s.gemini_model, "gemini")
+            return s
+    if can_promote and openai_key and provider not in {"ollama"}:
+        backend = "groq" if "groq.com" in base else "openai"
+        model = s.openai_model if s.openai_model not in {"mock-1", ""} else (
+            s.groq_model if backend == "groq" else "gpt-4o-mini"
+        )
+        url = s.openai_base_url
+        if backend == "groq" and "groq.com" not in url.lower():
+            url = "https://api.groq.com/openai/v1"
+        _as_openai(openai_key, url, model, backend)
+        return s
+
+    if provider in {"openai", "openai-compat"} and openai_key:
+        object.__setattr__(s, "llm_backend", "groq" if "groq.com" in base else "openai")
+        object.__setattr__(s, "llm_model", s.openai_model)
+        return s
+    if provider == "ollama":
+        object.__setattr__(s, "llm_backend", "ollama")
+        return s
+    object.__setattr__(s, "llm_backend", "mock")
+    return s
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     s = Settings()
@@ -134,7 +217,7 @@ def get_settings() -> Settings:
         tmp.mkdir(parents=True, exist_ok=True)
         object.__setattr__(s, "var_dir", tmp)
         object.__setattr__(s, "database_url", "sqlite+aiosqlite:////tmp/retailmind.db")
-    return s
+    return bind_hosted_llm(s)
 
 
 def reset_settings_cache() -> None:

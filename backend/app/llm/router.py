@@ -74,7 +74,7 @@ def _resolved_model(name: str, model: Optional[str] = None) -> Optional[str]:
     s = get_settings()
     if name == "ollama":
         return s.ollama_model
-    if name in ("openai", "openai-compat"):
+    if name in ("openai", "openai-compat", "groq", "gemini"):
         return s.openai_model
     return None
 
@@ -90,7 +90,7 @@ def build_provider(name: str, model: Optional[str] = None):
         from app.llm.providers import OllamaLLM
 
         return OllamaLLM(model=resolved)
-    if name in ("openai", "openai-compat"):
+    if name in ("openai", "openai-compat", "groq", "gemini"):
         from app.llm.providers import OpenAICompatLLM
 
         return OpenAICompatLLM(model=resolved)

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { chatStream, isAdmin } from '../api'
+import { chatStream, fetchAgentStatus, isAdmin } from '../api'
 
 const PERSONAS = {
   customer: {
     title: 'ShopZone Assistant',
-    sub: 'Customer multi-agent · shopping & orders',
-    welcome: 'Hi! I help shoppers find phones, laptops, compare specs, track orders, and check return policy.',
+    sub: 'Customer agents · catalogue + RAG policy',
+    welcome: 'Hi! I am a multi-agent shopper assistant. I search the catalogue, retrieve return/warranty policy, track orders, and compare specs.',
     suggests: [
       'Laptops under 80000 with 16GB RAM',
       'Compare phones rating 4.5+',
@@ -15,24 +15,24 @@ const PERSONAS = {
   },
   product: {
     title: 'Product Specialist',
-    sub: 'Customer agent · this product page',
-    welcome: 'Ask about this product’s specs, similar items, stock, or whether it fits your budget.',
+    sub: 'Product-page agent · specs, stock, warranty RAG',
+    welcome: 'Ask about this product’s specs, similar items, stock, or warranty/return policy. Answers are grounded in catalogue + retrieved documents.',
     suggests: [
       'Compare with similar products',
       'Is this good under my budget?',
       'Check inventory for this item',
-      'What are key features?',
+      'What is the warranty on this?',
     ],
   },
   owner: {
     title: 'Seller Ops Concierge',
-    sub: 'Owner multi-agent · orders & catalogue',
-    welcome: 'Owner mode: list pending orders, approve/reject, and ask about catalogue or inventory ops.',
+    sub: 'Owner agents · orders, inventory, policy',
+    welcome: 'Owner multi-agent desk: pending orders, approve/reject, low stock, and ops policy. Isolated from the customer bot.',
     suggests: [
       'List pending orders',
       'Approve the oldest pending order',
-      'Summarize today’s order queue',
       'Which products need restock?',
+      'Summarize today’s order queue',
     ],
   },
 }
@@ -46,6 +46,7 @@ export default function ChatWidget({
   const storageKey = `sz-chat-${persona}-${productContext?.id || 'global'}`
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
+  const [status, setStatus] = useState(null)
   const [msgs, setMsgs] = useState(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
@@ -68,16 +69,17 @@ export default function ChatWidget({
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [msgs, open])
 
-  const prefix = useMemo(() => {
-    if (persona === 'product' && productContext) {
-      return `[Product context: ${productContext.id} ${productContext.title} ₹${productContext.price_inr} ${productContext.category}] `
-    }
-    if (persona === 'owner') return '[Shop owner dashboard] '
-    return ''
-  }, [persona, productContext])
+  useEffect(() => {
+    fetchAgentStatus().then(setStatus)
+  }, [])
+
+  const liveLabel = useMemo(() => {
+    if (!status) return 'Connecting…'
+    if (status.llm_live) return `Live · ${status.llm_backend} · ${status.llm_model}`
+    return 'Demo mock · add GROQ_API_KEY on Vercel for live agents'
+  }, [status])
 
   if (forceHide) return null
-  // Never show customer chat on seller surfaces if somehow mounted
   if (persona !== 'owner' && typeof window !== 'undefined' && window.location.pathname.includes('/admin') && isAdmin()) {
     return null
   }
@@ -85,11 +87,10 @@ export default function ChatWidget({
   async function send(text) {
     const raw = (text || input).trim()
     if (!raw) return
-    const message = prefix + raw
     setInput('')
     setMsgs((m) => [...m, { role: 'user', text: raw }, { role: 'bot', text: `${cfg.title} planning…` }])
     try {
-      const final = await chatStream(message, conv, (ev) => {
+      const final = await chatStream(raw, conv, (ev) => {
         if (ev.type === 'agent' && ev.data?.type === 'agent_start') {
           setMsgs((m) => {
             const copy = [...m]
@@ -97,10 +98,19 @@ export default function ChatWidget({
             return copy
           })
         }
-      })
+        if (ev.type === 'agent' && ev.data?.type === 'graph_start') {
+          setMsgs((m) => {
+            const copy = [...m]
+            copy[copy.length - 1] = { role: 'bot', text: `${persona} team: ${(ev.data.specialists || []).join(', ')}` }
+            return copy
+          })
+        }
+      }, { persona, productId: productContext?.id })
       if (final?.conversation_id) setConv(final.conversation_id)
-      const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 100)}`).join('\n')
-      const answer = (final?.answer || 'No answer') + (sub ? `\n\n${sub}` : '')
+      const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 120)}`).join('\n')
+      const cites = (final?.citations || []).slice(0, 4)
+      const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
+      const answer = (final?.answer || 'No answer') + (sub ? `\n\n${sub}` : '') + citeLine
       setMsgs((m) => {
         const copy = [...m]
         copy[copy.length - 1] = { role: 'bot', text: answer }
@@ -136,6 +146,7 @@ export default function ChatWidget({
         <div className="sz-chat-head">
           <strong>{cfg.title}</strong>
           <div style={{ fontSize: 11, opacity: 0.7 }}>{cfg.sub}</div>
+          <div className={`sz-chat-live ${status?.llm_live ? 'on' : 'off'}`} data-testid={`chat-live-${persona}`}>{liveLabel}</div>
         </div>
         <div className="sz-chat-msgs" data-testid={`chat-messages-${persona}`}>
           {msgs.map((m, i) => (
@@ -149,7 +160,7 @@ export default function ChatWidget({
           ))}
         </div>
         <div className="sz-chat-input">
-          <input data-testid={`chat-input-${persona}`} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask…" />
+          <input data-testid={`chat-input-${persona}`} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask the agents…" />
           <button type="button" className="sz-btn sz-btn-blue" data-testid={`chat-send-${persona}`} onClick={() => send()}>Send</button>
         </div>
       </div>

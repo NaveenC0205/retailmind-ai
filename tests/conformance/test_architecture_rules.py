@@ -90,7 +90,7 @@ def test_the_supervisor_holds_no_business_tools():
 
 
 def test_read_only_agents_hold_no_write_tools():
-    for name in ("policy", "product", "recommendation"):
+    for name in ("policy", "product", "recommendation", "inventory"):
         assert not AGENTS[name].can_write, f"{name} gained a write tool"
 
 

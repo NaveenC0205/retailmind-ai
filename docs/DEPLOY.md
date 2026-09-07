@@ -145,13 +145,28 @@ download. Use an OpenAI-compatible API instead; the adapter in
 `backend/app/llm/providers.py` speaks to any of them.
 
 **Groq** is the best free option: OpenAI-compatible, fast, and a free tier
-that comfortably covers a demo.
+that comfortably covers a demo. On Vercel you only need the key — the app
+auto-promotes from mock to Groq Llama when `GROQ_API_KEY` is set.
+
+```
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.1-8b-instant
+```
+
+Or Gemini (free AI Studio key):
+
+```
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+Legacy OpenAI-compatible mapping still works:
 
 ```
 LLM_PROVIDER=openai
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
 OPENAI_API_KEY=gsk_...
-OPENAI_MODEL=llama-3.3-70b-versatile
+OPENAI_MODEL=llama-3.1-8b-instant
 ```
 
 OpenAI, Together, Fireworks and a self-hosted vLLM all work the same way —
@@ -181,7 +196,8 @@ separate embedding API and a re-ingest.
 |---|---|---|
 | `PORT` | 8000 | injected by every host; the image already honours it |
 | `DATABASE_URL` | `sqlite+aiosqlite:////data/retailmind.db` | point at Postgres for persistence across instances |
-| `LLM_PROVIDER` | `mock` | `mock`, `ollama`, or `openai` (any compatible endpoint) |
+| `LLM_PROVIDER` | `mock` | `mock`, `auto`, `groq`, `gemini`, `ollama`, or `openai` |
+| `GROQ_API_KEY` | unset | free Llama on Groq; auto-used on Vercel even if provider is mock |
 | `AUTO_BOOTSTRAP` | `true` | seeds and ingests on first boot; idempotent |
 | `PUBLIC_DEMO` | `true` | shown on `/health`; a signal, not a control |
 | `RATE_LIMIT_PER_MIN` | `30` | per caller, by `X-Forwarded-For` |

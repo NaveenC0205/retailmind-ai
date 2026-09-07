@@ -78,9 +78,9 @@ def _use_langchain_react(orch) -> bool:
     s = get_settings()
     if s.llm_provider == "mock" or s.cassette_mode == "replay":
         return False
-    if s.llm_provider in ("openai", "openai-compat") and s.openai_api_key:
+    if s.llm_provider in ("openai", "openai-compat", "groq", "gemini") and s.openai_api_key:
         return True
-    return False
+    return bool(s.openai_api_key and s.llm_backend in ("openai", "groq", "gemini"))
 
 
 def _build_langchain_tools(orch, tool_names: tuple[str, ...]):
@@ -178,8 +178,16 @@ async def _run_specialist_native(orch, agent_name: str, task: str, user_text: st
     return child_answer, child_terminal, facts, child_approval
 
 
-def build_jewellery_team_graph(orch, event_sink: Optional[EventSink] = None):
+def build_jewellery_team_graph(
+    orch,
+    event_sink: Optional[EventSink] = None,
+    specialists: tuple[str, ...] = SPECIALISTS,
+    persona: str = "customer",
+):
     """Compile a LangGraph supervisor → specialists → FINISH graph bound to this orchestrator."""
+    from app.agents.teams import supervisor_hint
+
+    allowed = tuple(a for a in specialists if a in AGENTS)
 
     async def supervisor_node(state: TeamState) -> dict:
         hop = int(state.get("hop") or 0) + 1
@@ -218,6 +226,9 @@ def build_jewellery_team_graph(orch, event_sink: Optional[EventSink] = None):
                     s if isinstance(s, dict) else s.__dict__ for s in sub_results
                 ],
                 "framework": "langgraph",
+                "persona": persona,
+                "allowed_agents": list(allowed),
+                "supervisor_hint": supervisor_hint(persona),
             },
         )
         orch.steps += 1
@@ -235,7 +246,7 @@ def build_jewellery_team_graph(orch, event_sink: Optional[EventSink] = None):
             },
         )
 
-        if action.type == "delegate" and action.agent in supervisor.delegates_to:
+        if action.type == "delegate" and action.agent in allowed:
             return {
                 "next_agent": action.agent,
                 "task": action.task or user_text,
@@ -355,7 +366,7 @@ def build_jewellery_team_graph(orch, event_sink: Optional[EventSink] = None):
 
     def route_from_supervisor(state: TeamState) -> str:
         nxt = state.get("next_agent") or "FINISH"
-        if nxt == "FINISH" or nxt not in SPECIALISTS:
+        if nxt == "FINISH" or nxt not in allowed:
             return "FINISH"
         return nxt
 
@@ -366,16 +377,16 @@ def build_jewellery_team_graph(orch, event_sink: Optional[EventSink] = None):
 
     graph = StateGraph(TeamState)
     graph.add_node("supervisor", supervisor_node)
-    for name in SPECIALISTS:
+    for name in allowed:
         graph.add_node(name, _make_specialist(name))
 
     graph.add_edge(START, "supervisor")
     graph.add_conditional_edges(
         "supervisor",
         route_from_supervisor,
-        {**{n: n for n in SPECIALISTS}, "FINISH": END},
+        {**{n: n for n in allowed}, "FINISH": END},
     )
-    for name in SPECIALISTS:
+    for name in allowed:
         graph.add_conditional_edges(
             name,
             route_from_specialist,
@@ -391,8 +402,10 @@ async def run_langgraph_team(
     facts: dict,
     intent: str,
     event_sink: Optional[EventSink] = None,
+    specialists: tuple[str, ...] = SPECIALISTS,
+    persona: str = "customer",
 ) -> LangGraphTeamResult:
-    """Execute the jewellery multi-agent team on LangGraph."""
+    """Execute the persona-scoped multi-agent team on LangGraph."""
     events: list[dict] = []
 
     async def _collect(ev: dict):
@@ -402,13 +415,16 @@ async def run_langgraph_team(
             if hasattr(out, "__await__"):
                 await out  # type: ignore[misc]
 
-    compiled = build_jewellery_team_graph(orch, event_sink=_collect)
+    compiled = build_jewellery_team_graph(
+        orch, event_sink=_collect, specialists=specialists, persona=persona
+    )
     await _collect(
         {
             "type": "graph_start",
             "framework": "langgraph",
-            "specialists": list(SPECIALISTS),
-            "message": "LangGraph supervisor starting multi-agent plan",
+            "persona": persona,
+            "specialists": list(specialists),
+            "message": f"LangGraph {persona} team starting multi-agent plan",
         }
     )
 

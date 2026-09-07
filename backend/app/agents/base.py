@@ -67,7 +67,7 @@ AGENTS: dict[str, AgentSpec] = {
         ),
         delegates_to=(
             "shopping", "product", "order", "checkout", "policy",
-            "refund", "support", "recommendation", "admin",
+            "refund", "support", "recommendation", "admin", "inventory",
         ),
     ),
     "shopping": AgentSpec(
@@ -104,8 +104,9 @@ AGENTS: dict[str, AgentSpec] = {
     "policy": AgentSpec(
         name="policy",
         role=(
-            "You answer policy questions ONLY from retrieved company policy documents, "
-            "always with citations. Cover returns, shipping, warranty, and exchange."
+            "You are the RAG policy specialist. Always call retrieve_policy first. "
+            "Answer ONLY from retrieved company policy documents, always with citations. "
+            "Cover returns, shipping, warranty, and exchange. If retrieval is empty, say so."
         ),
         tools=("retrieve_policy", "search_knowledge_base"),
     ),
@@ -131,6 +132,15 @@ AGENTS: dict[str, AgentSpec] = {
             "and summarize operational status. Use admin tools carefully."
         ),
         tools=("get_pending_orders", "approve_order", "reject_order", "get_order", "get_orders"),
+    ),
+    "inventory": AgentSpec(
+        name="inventory",
+        role=(
+            "You are the seller inventory specialist. Report low stock, warehouse availability, "
+            "and catalogue coverage using list_low_stock, check_inventory, search_products and get_product. "
+            "You never change prices or create orders."
+        ),
+        tools=("list_low_stock", "check_inventory", "search_products", "get_product"),
     ),
     "single": AgentSpec(
         name="single",

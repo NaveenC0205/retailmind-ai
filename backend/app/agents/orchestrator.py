@@ -69,10 +69,12 @@ def classify_mode(user_text: str, requested: str = "auto") -> tuple[str, str]:
     # Heuristics that expand multi-agent coverage for the jewellery shop chat.
     if any(k in text for k in ("gift", "anniversary", "wedding", "recommend under", "budget")):
         intent = intent if intent in MULTI_AGENT_INTENTS else "gift_advice"
-    if any(k in text for k in ("pending order", "approve order", "reject order", "shop owner", "seller")):
+    if any(k in text for k in ("pending order", "approve order", "reject order", "shop owner", "seller", "restock", "low stock", "inventory")):
         intent = "admin_ops"
     if any(k in text for k in ("place order", "buy now", "checkout", "create order")):
         intent = "checkout_help"
+    if any(k in text for k in ("return policy", "warranty", "shipping policy", "exchange policy")):
+        intent = "policy"
     jewel = ("earring", "necklace", "pendant", "bangle", "mangalsutra", "charm", "jewellery", "jewelry")
     if any(k in text for k in jewel) and any(
         k in text for k in ("and", "also", "under", "return", "policy", "ship", "gift", "compare")
@@ -166,6 +168,12 @@ def absorb(facts: dict, tool: str, data: dict) -> dict:
         facts["candidate_product_ids"] = [p["product_id"] for p in recs]
         facts["candidate_titles"] = [p["title"] for p in recs]
         facts["applied_preference"] = data.get("applied_preference") or {}
+    elif tool == "list_low_stock":
+        facts["low_stock"] = data.get("items") or []
+        facts["low_stock_count"] = data.get("count")
+    elif tool == "get_pending_orders":
+        facts["pending_orders"] = data.get("orders") or []
+        facts["pending_count"] = data.get("count")
     return facts
 
 
@@ -192,12 +200,18 @@ class Orchestrator:
         budget: Optional[Budget] = None,
         hitl_enabled: bool = True,
         persist: bool = True,
+        persona: str = "customer",
+        product_id: str = "",
     ):
+        from app.agents.teams import resolve_persona
+
         s = get_settings()
         self.session = session
         self.principal = principal
         self.router = router or LLMRouter(prompt_version=prompt_version)
         self.prompt_version = prompt_version
+        self.persona = resolve_persona(persona, principal.kind)
+        self.product_id = product_id or ""
         self.budget = budget or Budget(
             max_steps=s.max_steps,
             max_tokens=s.max_tokens_per_run,
@@ -245,8 +259,48 @@ class Orchestrator:
             clean_text = inbound.text
             resolved_mode, intent = classify_mode(clean_text, mode)
 
-            with span("conversation.route", mode=resolved_mode, intent=intent):
+            with span("conversation.route", mode=resolved_mode, intent=intent, persona=self.persona):
                 facts = await self.memory.facts_dict()
+            facts["persona"] = self.persona
+            if self.product_id:
+                facts["product_id"] = self.product_id
+                if "[Product context" not in clean_text:
+                    clean_text = f"[Product context id={self.product_id}] {clean_text}"
+            if self.persona == "owner" and "[Shop owner" not in clean_text:
+                clean_text = f"[Shop owner dashboard] {clean_text}"
+            facts = await self._prime_rag(clean_text, facts)
+
+            # Shop chat always asks for multi_agent; still run dedicated RAG
+            # when the question is a policy lookup so answers stay cited.
+            if resolved_mode == "multi_agent" and intent == "policy" and self.persona != "owner":
+                rag_answer, rag_term, _, citations, rag_facts, _ = await self._run_rag(
+                    clean_text, facts, intent
+                )
+                facts = rag_facts
+                # Continue multi-agent so shopping+policy compound questions
+                # still get a specialist, but keep RAG chunks in context.
+                if not any(k in clean_text.lower() for k in ("and", "also", "compare", "order", "refund", "buy")):
+                    answer, terminal, sub_results, citations, out_facts, approval_id = (
+                        rag_answer, rag_term, [], citations, rag_facts, ""
+                    )
+                    out_ctx = {
+                        "retrieved_chunk_ids": [c["id"] for c in (out_facts.get("chunks") or [])],
+                        "retrieved_texts": [c["content"] for c in (out_facts.get("chunks") or [])],
+                        "requires_grounding": True,
+                    }
+                    with span("guardrail.output"):
+                        outbound = run_output_chain(answer, out_ctx)
+                    if outbound.verdict is Verdict.REFUSE:
+                        answer, terminal = REFUSAL_MESSAGE, TerminalState.REFUSED
+                    else:
+                        answer = outbound.text
+                    return await self._finish(
+                        answer, terminal, "rag", "policy", trace, started,
+                        conversation_id, user_text, sub_results=sub_results,
+                        citations=citations, facts=out_facts, approval_id=approval_id,
+                        guardrail_triggered=inbound.triggered() + outbound.triggered(),
+                        groundedness=out_ctx.get("groundedness_score"),
+                    )
 
             # 2 -- dispatch
             if resolved_mode == "chat":
@@ -345,6 +399,37 @@ class Orchestrator:
         terminal = TerminalState.COMPLETED if chunks else TerminalState.PARTIAL
         return completion.text, terminal, [], facts["citation_ids"], facts, ""
 
+    async def _prime_rag(self, text: str, facts: dict) -> dict:
+        """Always retrieve trusted policy (+ product KB) so every agentic turn is grounded."""
+        from app.rag.retrieve import Retriever
+
+        try:
+            retriever = Retriever(self.session)
+            trust = "trusted"
+            families = None
+            if self.persona == "product":
+                families = None
+            hits = await retriever.search(text, min_trust=trust, families=families)
+            if not hits and self.persona in {"product", "customer"}:
+                hits = await retriever.search(text, min_trust="untrusted")
+            chunks = [
+                {
+                    "id": h.chunk_id,
+                    "document_id": h.document_id,
+                    "content": h.content,
+                    "heading": h.heading,
+                    "trust": h.trust,
+                    "score": h.rerank_score,
+                }
+                for h in hits[:6]
+            ]
+            if chunks:
+                facts["chunks"] = chunks
+                facts["citation_ids"] = [c["id"] for c in chunks]
+        except Exception:  # noqa: BLE001 — retrieval miss must not kill chat
+            pass
+        return facts
+
     async def _run_single(self, text: str, facts: dict, intent: str, spec_name: str = "single"):
         spec = AGENTS[spec_name]
         answer, terminal, facts, approval_id = await self._agent_loop(spec, text, text, facts, intent)
@@ -353,13 +438,21 @@ class Orchestrator:
     async def _run_multi(self, text: str, facts: dict, intent: str, event_sink=None):
         """Multi-agent mode runs on LangGraph (LangChain multi-agent framework).
 
-        Supervisor + specialist StateGraph; specialists use the native tool loop
-        under mock/eval, or LangChain ``create_react_agent`` when OpenAI is live.
+        Supervisor + specialist StateGraph scoped to the chat persona
+        (customer / product / owner). Specialists use the native tool loop
+        under mock/eval, or LangChain ``create_react_agent`` when a live key exists.
         """
         from app.agents.langgraph_runtime import run_langgraph_team
+        from app.agents.teams import specialists_for
 
         team = await run_langgraph_team(
-            self, text, facts, intent, event_sink=event_sink
+            self,
+            text,
+            facts,
+            intent,
+            event_sink=event_sink,
+            specialists=specialists_for(self.persona),
+            persona=self.persona,
         )
         return (
             team.answer,
@@ -486,6 +579,15 @@ class Orchestrator:
                 Provenance.SYSTEM,
                 f"The current customer is {self.principal.customer_id}. "
                 "Always pass this as customer_id when a tool requires it.",
+            )
+        if extra_meta and extra_meta.get("supervisor_hint"):
+            context.add(Provenance.SYSTEM, extra_meta["supervisor_hint"])
+        if extra_meta and extra_meta.get("allowed_agents"):
+            context.add(
+                Provenance.SYSTEM,
+                "You may only delegate to these specialists: "
+                + ", ".join(extra_meta["allowed_agents"])
+                + ". For policy/warranty/returns always include the policy specialist.",
             )
         await self.memory.as_fragments(context)
         for c in (facts.get("chunks") or [])[:4]:
