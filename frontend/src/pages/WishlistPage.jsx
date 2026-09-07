@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { formatPrice, productImage } from '../api'
+import { askAgent, formatPrice, productImage } from '../api'
 import { addToCart, getWishlist, toggleWishlist } from '../store'
 
 export default function WishlistPage() {
@@ -24,6 +24,7 @@ export default function WishlistPage() {
               <div className="sz-price">{formatPrice(p.price)}</div>
               <div className="sz-card-actions">
                 <button type="button" className="sz-btn sz-btn-blue" onClick={() => { addToCart(p.id, p.title, p.price); toggleWishlist(p.id) }}>Move to bag</button>
+                <button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent(`What's the price, stock and warranty for ${p.title}?`)}>Ask agent</button>
                 <button type="button" className="sz-btn sz-btn-ghost" onClick={() => toggleWishlist(p.id)}>Remove</button>
               </div>
             </div>

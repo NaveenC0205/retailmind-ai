@@ -16,7 +16,7 @@ import './styles.css'
 /** Customer shopping chatbot — hidden on admin, login, and product pages (product has its own). */
 function CustomerChat() {
   const { pathname } = useLocation()
-  if (pathname.startsWith('/admin') || pathname.startsWith('/login') || pathname.startsWith('/product/')) {
+  if (pathname.startsWith('/admin') || pathname.startsWith('/login') || pathname.startsWith('/product/') || pathname.startsWith('/lab')) {
     return null
   }
   return <ChatWidget persona="customer" />

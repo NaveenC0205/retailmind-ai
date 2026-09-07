@@ -186,6 +186,10 @@ def absorb(facts: dict, tool: str, data: dict) -> dict:
         facts["candidate_product_ids"] = [p["product_id"] for p in recs]
         facts["candidate_titles"] = [p["title"] for p in recs]
         facts["applied_preference"] = data.get("applied_preference") or {}
+    elif tool == "check_inventory":
+        facts["product_id"] = data.get("product_id", facts.get("product_id"))
+        facts["available"] = data.get("available")
+        facts["in_stock"] = data.get("in_stock")
     elif tool == "list_low_stock":
         facts["low_stock"] = data.get("items") or []
         facts["low_stock_count"] = data.get("count")
@@ -928,6 +932,124 @@ class Orchestrator:
         ]
         return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
 
+    async def _guided_owner_ops(self, text: str, facts: dict, intent: str, event_sink=None):
+        """Seller dashboard agent: pending queue, approve/reject, low stock — no LangGraph hang."""
+        if self.persona != "owner":
+            return None
+        import re as _re
+
+        from app.llm.mock import extract_order_id
+
+        low = (text or "").lower()
+        looks = intent == "admin_ops" or any(
+            k in low
+            for k in (
+                "pending order", "approve", "reject", "low stock", "restock",
+                "inventory", "order queue", "packed", "seller", "stock",
+            )
+        )
+        if not looks:
+            return None
+
+        await self._notify(
+            event_sink,
+            {"type": "agent_start", "agent": "admin", "task": "seller ops", "framework": "owner-ops"},
+        )
+        tools_used: list[str] = []
+        lines: list[str] = []
+        oid = extract_order_id(text) or extract_order_id(facts.get("original_query") or "")
+        pid_m = _re.search(r"\bPR-[A-Za-z0-9]+\b", text or "", _re.I)
+        pid = (pid_m.group(0).upper() if pid_m else "") or str(facts.get("product_id") or "")
+
+        want_low = any(k in low for k in ("low stock", "restock", "need restock"))
+        want_inv = "inventory" in low or "stock" in low
+        want_approve = "approve" in low and "reject" not in low
+        want_reject = "reject" in low
+        want_pending = any(k in low for k in ("pending", "queue", "list order", "today's order", "todays order"))
+
+        if pid and want_inv and not want_low:
+            inv = await self.gateway.call("check_inventory", {"product_id": pid})
+            tools_used.append("check_inventory")
+            if inv.ok:
+                lines.append(
+                    f"{pid}: {inv.data.get('available')} available"
+                    f"{' (in stock)' if inv.data.get('in_stock') else ' (out of stock)'}"
+                )
+                for wh in (inv.data.get("warehouses") or [])[:4]:
+                    lines.append(f"• {wh.get('warehouse')}: {wh.get('available')}")
+            else:
+                lines.append(inv.denial_reason or f"Could not check {pid}.")
+        elif want_low or (want_inv and not want_approve and not want_reject):
+            stock = await self.gateway.call("list_low_stock", {"threshold": 20, "limit": 8})
+            tools_used.append("list_low_stock")
+            if stock.ok:
+                items = stock.data.get("items") or []
+                lines.append(f"Low stock (≤20): {stock.data.get('count', len(items))} SKUs.")
+                for it in items[:6]:
+                    lines.append(f"• {it.get('title')} ({it.get('product_id')}) — {it.get('available')} left")
+                if not items:
+                    lines.append("No SKUs are at or below the restock threshold.")
+
+        target_id = oid
+        if want_pending or want_approve or want_reject or not lines:
+            pending = await self.gateway.call("get_pending_orders", {"status": "placed", "limit": 8})
+            tools_used.append("get_pending_orders")
+            if pending.ok:
+                orders = pending.data.get("orders") or []
+                lines.append(f"Pending placed orders: {pending.data.get('count', len(orders))}.")
+                for o in orders[:6]:
+                    lines.append(
+                        f"• {o.get('order_id')} · {o.get('customer_id')} · ₹{int(o.get('total_inr') or 0):,}"
+                    )
+                if not orders:
+                    lines.append("Queue is empty.")
+                if not target_id and orders:
+                    target_id = orders[0].get("order_id")
+
+        if target_id and want_approve:
+            ap = await self.gateway.call("approve_order", {"order_id": target_id})
+            tools_used.append("approve_order")
+            if ap.ok:
+                lines.append(ap.data.get("message") or f"Approved {target_id}.")
+            else:
+                lines.append(ap.denial_reason or "Approve failed.")
+        if target_id and want_reject:
+            rj = await self.gateway.call(
+                "reject_order",
+                {"order_id": target_id, "reason": "seller_dashboard_reject"},
+            )
+            tools_used.append("reject_order")
+            if rj.ok:
+                lines.append(rj.data.get("message") or f"Rejected {target_id}.")
+            else:
+                lines.append(rj.denial_reason or "Reject failed.")
+
+        answer = "\n".join(str(x) for x in lines if x) or (
+            "Seller ops: ask me to list pending orders, approve/reject a specific OR- id, or show low stock."
+        )
+        facts["intent"] = "admin_ops"
+        await self._notify(
+            event_sink,
+            {
+                "type": "agent_done",
+                "agent": "admin",
+                "summary": answer[:400],
+                "terminal_state": TerminalState.COMPLETED.value,
+                "framework": "owner-ops",
+            },
+        )
+        sub = [
+            SubResult(
+                agent="admin",
+                task="seller ops",
+                summary=answer,
+                steps=max(self.steps, 1),
+                tools=tools_used,
+                terminal_state=TerminalState.COMPLETED.value,
+            ).__dict__
+        ]
+        return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
+
     async def _run_multi(self, text: str, facts: dict, intent: str, event_sink=None):
         """Multi-agent mode runs on LangGraph (LangChain multi-agent framework).
 
@@ -942,6 +1064,9 @@ class Orchestrator:
         guided = await self._guided_checkout(text, facts, intent, event_sink)
         if guided:
             return guided
+        owner = await self._guided_owner_ops(text, facts, intent, event_sink)
+        if owner:
+            return owner
         from app.agents.langgraph_runtime import run_langgraph_team
         from app.agents.teams import specialists_for
 

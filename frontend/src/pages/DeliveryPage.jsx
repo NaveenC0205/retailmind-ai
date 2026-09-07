@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { formatPrice, isLoggedIn, placeOrder, productImage } from '../api'
+import { askAgent, formatPrice, isLoggedIn, placeOrder, productImage } from '../api'
 import { clearCart, getCart } from '../store'
 import Loading from '../components/Loading'
 
@@ -179,6 +179,15 @@ export default function DeliveryPage() {
               Place order
             </button>
           )}
+          <button
+            type="button"
+            className="sz-btn sz-btn-ghost sz-btn-full"
+            style={{ marginTop: 8 }}
+            data-testid="delivery-ask-agent"
+            onClick={() => askAgent(`Buy ${cart[0]?.title || 'this'} with ${pay === 'cod' ? 'cash on delivery' : pay.toUpperCase()}`)}
+          >
+            Ask agent to place this
+          </button>
           <Link to="/cart" className="sz-btn sz-btn-ghost sz-btn-full" style={{ marginTop: 8 }}>Back to cart</Link>
         </div>
       </div>

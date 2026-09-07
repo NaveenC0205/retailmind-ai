@@ -169,7 +169,7 @@ AGENTS: dict[str, AgentSpec] = {
             "get_active_promotions", "validate_coupon",
             "get_recommendations", "search_knowledge_base", "retrieve_policy",
             "list_payment_methods",
-            "get_pending_orders", "approve_order", "reject_order",
+            "get_pending_orders", "approve_order", "reject_order", "list_low_stock",
         ),
     ),
 }

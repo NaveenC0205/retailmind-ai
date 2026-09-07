@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { authHeaders, formatPrice, isLoggedIn, productImage } from '../api'
+import { askAgent, authHeaders, formatPrice, isLoggedIn, productImage } from '../api'
 import { downloadText } from '../store'
 import Loading from '../components/Loading'
 
@@ -58,6 +58,8 @@ export default function OrderDetailPage() {
         >
           Download invoice
         </button>
+        <button type="button" className="sz-btn sz-btn-ghost" data-testid="order-ask-track" onClick={() => askAgent(`Where is my order ${order.id}?`)}>Track with assistant</button>
+        <button type="button" className="sz-btn sz-btn-ghost" data-testid="order-ask-return" onClick={() => askAgent(`Can I return items on order ${order.id}?`)}>Ask about return</button>
       </div>
       <p className="sz-meta">Placed {order.placed_at ? new Date(order.placed_at).toLocaleString('en-IN') : '—'} · Channel {order.channel || 'web'}</p>
       <p data-testid="order-detail-status" style={{ fontSize: 18, fontWeight: 600, textTransform: 'capitalize' }}>

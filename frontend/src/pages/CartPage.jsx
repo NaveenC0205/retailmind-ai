@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { formatPrice, productImage } from '../api'
+import { askAgent, formatPrice, productImage } from '../api'
 import { getCart, removeFromCart, setCartQty } from '../store'
 
 export default function CartPage() {
@@ -47,6 +47,9 @@ export default function CartPage() {
         <div style={{ fontSize: 22, fontWeight: 600, marginBottom: 12 }}>Total {formatPrice(total)}</div>
         <button type="button" className="sz-btn sz-btn-blue sz-btn-full" data-testid="checkout-btn" onClick={() => nav('/delivery')}>
           Proceed to delivery
+        </button>
+        <button type="button" className="sz-btn sz-btn-ghost sz-btn-full" style={{ marginTop: 8 }} data-testid="cart-ask-agent" onClick={() => askAgent(`Buy ${cart[0]?.title || 'these items'} with UPI`)}>
+          Ask agent to checkout with UPI
         </button>
       </div>
     </div>

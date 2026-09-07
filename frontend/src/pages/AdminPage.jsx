@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { authHeaders, formatPrice, isAdmin, isLoggedIn } from '../api'
+import { authHeaders, askAgent, decideApproval, fetchApprovals, fetchRuns, formatPrice, isAdmin, isLoggedIn } from '../api'
 import { downloadText } from '../store'
 import ChatWidget from '../components/ChatWidget'
 import Loading from '../components/Loading'
@@ -10,6 +10,8 @@ const TABS = [
   { id: 'products', label: 'Products' },
   { id: 'orders', label: 'Orders' },
   { id: 'inventory', label: 'Inventory' },
+  { id: 'approvals', label: 'HITL approvals' },
+  { id: 'agents', label: 'Agent runs' },
   { id: 'preview', label: 'Live preview' },
 ]
 
@@ -35,6 +37,8 @@ export default function AdminPage() {
   const [form, setForm] = useState(emptyForm)
   const [editId, setEditId] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [approvals, setApprovals] = useState([])
+  const [runs, setRuns] = useState([])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -50,6 +54,17 @@ export default function AdminPage() {
       setProducts(pData.products || [])
       setOrders(oData.orders || [])
       setInventory(iData.inventory || iData.items || [])
+      try {
+        const [aData, rData] = await Promise.all([
+          fetchApprovals('pending'),
+          fetchRuns(20),
+        ])
+        setApprovals(aData.approvals || [])
+        setRuns(rData.runs || [])
+      } catch {
+        setApprovals([])
+        setRuns([])
+      }
     } catch {
       setMsg('Failed to load dashboard data')
     } finally {
@@ -183,6 +198,7 @@ export default function AdminPage() {
           </button>
         ))}
         <Link to="/store" className="sz-side-link" target="_blank" rel="noreferrer">Storefront ↗</Link>
+        <Link to="/lab" className="sz-side-link" data-testid="admin-open-lab">Framework lab</Link>
         <Link to="/" className="sz-side-link">Exit to shop</Link>
       </aside>
 
@@ -197,9 +213,12 @@ export default function AdminPage() {
           <div style={{ background: '#fff', borderRadius: 16, padding: 18 }}><div className="sz-meta">Orders</div><div style={{ fontSize: 32, fontWeight: 600 }}>{orders.length}</div></div>
           <div style={{ background: '#fff', borderRadius: 16, padding: 18 }}><div className="sz-meta">Pending</div><div style={{ fontSize: 32, fontWeight: 600 }}>{orders.filter((o) => o.status === 'placed').length}</div></div>
           <div style={{ background: '#fff', borderRadius: 16, padding: 18 }}><div className="sz-meta">Inventory rows</div><div style={{ fontSize: 32, fontWeight: 600 }}>{inventory.length}</div></div>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 18 }}><div className="sz-meta">HITL pending</div><div style={{ fontSize: 32, fontWeight: 600 }}>{approvals.length}</div></div>
           <div style={{ gridColumn: '1 / -1' }}>
             <Link to="/store" className="sz-btn sz-btn-blue" target="_blank" rel="noreferrer">Open storefront (new tab)</Link>
             <button type="button" className="sz-btn sz-btn-ghost" style={{ marginLeft: 8 }} onClick={() => downloadText('catalogue.json', JSON.stringify(products, null, 2), 'application/json')}>Download catalogue</button>
+            <button type="button" className="sz-btn sz-btn-dark" style={{ marginLeft: 8 }} data-testid="admin-ask-pending" onClick={() => askAgent('List pending orders', { persona: 'owner' })}>Ask agent: pending orders</button>
+            <button type="button" className="sz-btn sz-btn-ghost" style={{ marginLeft: 8 }} onClick={() => askAgent('Which products need restock?', { persona: 'owner' })}>Ask agent: low stock</button>
           </div>
         </section>
       )}
@@ -240,9 +259,10 @@ export default function AdminPage() {
                   <div className="sz-card-title">{p.title}</div>
                   <div className="sz-meta">{p.brand} · ★ {p.rating}</div>
                   <div className="sz-price">{formatPrice(p.price_inr)}</div>
-                  <div className="sz-card-actions" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                  <div className="sz-card-actions" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
                     <button type="button" className="sz-btn sz-btn-blue" data-testid={`edit-${p.id}`} onClick={() => startEdit(p)}>Edit</button>
                     <Link to={`/product/${p.id}`} className="sz-btn sz-btn-ghost" data-testid={`view-${p.id}`}>View</Link>
+                    <button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent(`Check inventory for ${p.title} ${p.id}`, { persona: 'owner' })}>Ask agent</button>
                     <button type="button" className="sz-btn sz-btn-dark" data-testid={`delete-${p.id}`} onClick={() => removeProduct(p.id)}>Delete</button>
                   </div>
                 </div>
@@ -268,6 +288,7 @@ export default function AdminPage() {
                   <button type="button" className="sz-btn sz-btn-dark" onClick={() => updateOrder(o.id, 'shipped')}>Shipped</button>
                   <button type="button" className="sz-btn sz-btn-ghost" onClick={() => updateOrder(o.id, 'delivered')}>Delivered</button>
                   <button type="button" className="sz-btn sz-btn-ghost" onClick={() => updateOrder(o.id, 'cancelled')}>Cancel</button>
+                  <button type="button" className="sz-btn sz-btn-ghost" data-testid={`ask-approve-${o.id}`} onClick={() => askAgent(`Approve order ${o.id}`, { persona: 'owner' })}>Ask agent: approve</button>
                   <Link to={`/orders/${o.id}`} className="sz-btn sz-btn-ghost">Details</Link>
                 </div>
               </div>
@@ -288,10 +309,67 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button type="button" className="sz-btn sz-btn-blue" onClick={() => bumpStock(row.product_id, 10)}>+10</button>
                   <button type="button" className="sz-btn sz-btn-ghost" onClick={() => bumpStock(row.product_id, -5)}>-5</button>
+                  <button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent(`Check inventory for ${row.product_title || row.product_id}`, { persona: 'owner' })}>Ask agent</button>
                 </div>
               </div>
             ))}
             {!inventory.length && <p className="sz-meta">No inventory rows yet.</p>}
+          </div>
+        </section>
+      )}
+
+      {tab === 'approvals' && (
+        <section data-testid="admin-approvals">
+          <p className="sz-meta">Human-in-the-loop pauses from high-value customer actions. Approve or reject here.</p>
+          {!approvals.length && <p data-testid="approvals-empty">No pending approvals.</p>}
+          <div style={{ display: 'grid', gap: 10 }}>
+            {approvals.map((a) => (
+              <div key={a.id} style={{ background: '#fff', borderRadius: 16, padding: 14 }} data-testid={`approval-${a.id}`}>
+                <strong>{a.id}</strong> · {a.tool} · {a.customer_id}
+                <div className="sz-meta">{a.reason}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button type="button" className="sz-btn sz-btn-blue" onClick={async () => {
+                    try {
+                      const out = await decideApproval(a.id, 'approve')
+                      setMsg(`Approved ${a.id} · executed=${out.executed}`)
+                      await refresh()
+                    } catch (e) { setMsg(e.message) }
+                  }}>Approve</button>
+                  <button type="button" className="sz-btn sz-btn-ghost" onClick={async () => {
+                    try {
+                      await decideApproval(a.id, 'reject')
+                      setMsg(`Rejected ${a.id}`)
+                      await refresh()
+                    } catch (e) { setMsg(e.message) }
+                  }}>Reject</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === 'agents' && (
+        <section data-testid="admin-agents">
+          <p className="sz-meta">Recent orchestrator runs — LangGraph, RAG, and single-agent. Open Lab to switch frameworks.</p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <button type="button" className="sz-btn sz-btn-blue" onClick={() => askAgent('List pending orders', { persona: 'owner' })}>Pending queue</button>
+            <button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent('Approve the oldest pending order', { persona: 'owner' })}>Approve oldest</button>
+            <button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent('Which products need restock?', { persona: 'owner' })}>Low stock</button>
+            <Link className="sz-btn sz-btn-dark" to="/lab">Open framework lab</Link>
+          </div>
+          {!runs.length && <p>No agent runs yet. Use the seller chatbot or Lab.</p>}
+          <div style={{ display: 'grid', gap: 8 }}>
+            {runs.map((r) => (
+              <div key={r.run_id} style={{ background: '#fff', borderRadius: 12, padding: 12 }} data-testid={`run-${r.run_id}`}>
+                <strong>{r.run_id}</strong> · {r.mode} · {r.entry_agent} · {r.terminal_state} · {r.steps} steps · {r.latency_ms}ms
+                <div className="sz-meta">
+                  {r.trace_id && <a href={`/api/traces/${r.trace_id}`} target="_blank" rel="noreferrer">trace</a>}
+                  {' · '}
+                  <a href={`/api/runs/${r.run_id}`} target="_blank" rel="noreferrer">tools JSON</a>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}

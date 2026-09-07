@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AgentLab from '../components/AgentLab'
 import LazyModule from '../components/LazyModule'
 import { downloadText } from '../store'
 
@@ -10,8 +11,12 @@ export default function LabPage() {
     <div className="sz-wrap" data-testid="lab-page">
       <h1 style={{ fontSize: 40, fontWeight: 600 }}>Test Lab</h1>
       <p style={{ color: 'var(--muted)' }}>
-        Built for automation testing, API testing, agentic testing, RAG testing, and chatbot testing.
+        Built for automation testing, API testing, and agentic / RAG / chatbot testing across frameworks.
       </p>
+
+      <section style={{ marginTop: 28 }} data-testid="lab-agentic">
+        <AgentLab />
+      </section>
 
       <section style={{ marginTop: 28 }} data-testid="lab-newtab">
         <h2>New tab navigation</h2>

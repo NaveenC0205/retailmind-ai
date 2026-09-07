@@ -353,6 +353,7 @@ async def chat_stream(
                         "llm_backend": get_settings().llm_backend,
                         "llm_live": get_settings().llm_backend != "mock",
                         "suggestions": list(result.suggestions or []),
+                        "approval_id": result.approval_id or "",
                     },
                 }
             )

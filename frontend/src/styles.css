@@ -280,7 +280,39 @@ img { max-width: 100%; display: block; }
   opacity: .8;
 }
 .sz-chat-live.on { color: #7dffb3; }
-.sz-chat-live.off { color: #ffd37d; }
+.sz-chat-meta { margin-top: 4px; font-size: 10px; opacity: .65; word-break: break-all; }
+.sz-agent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px 0;
+  background: #fafafa;
+  border-bottom: 1px solid var(--line);
+}
+.sz-agent-chip {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 3px 8px;
+  border-radius: 980px;
+  background: #eee;
+  color: #666;
+}
+.sz-agent-chip.on { background: #d6e8ff; color: #0071e3; font-weight: 600; }
+.sz-lab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 800px) { .sz-lab-grid { grid-template-columns: 1fr; } }
+.sz-lab-card { background: #fff; border-radius: 16px; padding: 16px; }
+.sz-lab-out {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  background: #0f0f12;
+  color: #d7ffd7;
+  border-radius: 12px;
+  padding: 12px;
+  max-height: 360px;
+  overflow: auto;
+}
 .sz-chat-msgs { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .sz-msg { max-width: 88%; padding: 10px 12px; border-radius: 16px; font-size: 13px; white-space: pre-wrap; }
 .sz-msg.user { align-self: flex-end; background: var(--blue); color: #fff; }

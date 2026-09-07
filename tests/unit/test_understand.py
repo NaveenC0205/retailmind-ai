@@ -41,3 +41,9 @@ def test_preserves_order_ids():
 def test_place_order_typos_route_to_checkout():
     assert detect_intent("i tot place order") == "checkout_help"
     assert detect_intent("place oder") == "checkout_help"
+
+
+def test_restock_is_not_rewritten_to_stock():
+    out = rewrite_query("Which products need restock?")
+    assert "restock" in out
+    assert detect_intent("Which products need restock?") == "admin_ops"

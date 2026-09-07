@@ -150,7 +150,8 @@ _VOCAB: tuple[str, ...] = (
     "monitors", "speaker", "earbuds", "search", "price", "prices", "compare",
     "recommend", "order", "orders", "return", "refund", "warranty", "policy",
     "checkout", "payment", "delivery", "coupon", "discount", "budget", "under",
-    "buy", "show", "find", "track", "cancel", "stock", "rating",
+    "buy", "show", "find", "track", "cancel", "stock", "restock", "rating",
+    "pending", "inventory",
 )
 
 _SKIP_FUZZY = {

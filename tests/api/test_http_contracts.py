@@ -119,6 +119,57 @@ async def test_logged_in_checkout_asks_for_payment_then_places(client):
     assert any("order" in s.lower() for s in (placed.get("suggestions") or ["Show my recent orders"]))
 
 
+async def test_owner_agent_lists_pending_and_low_stock(client):
+    pending = (await client.post(
+        "/api/chat",
+        json={"message": "List pending orders", "mode": "multi_agent", "persona": "owner"},
+        headers=OPERATOR,
+    )).json()
+    assert pending["persona"] == "owner"
+    assert "pending" in pending["answer"].lower() or "or-" in pending["answer"].lower()
+    assert pending.get("suggestions")
+
+    stock = (await client.post(
+        "/api/chat",
+        json={"message": "Which products need restock?", "mode": "multi_agent", "persona": "owner"},
+        headers=OPERATOR,
+    )).json()
+    assert stock["persona"] == "owner"
+    assert "stock" in stock["answer"].lower() or "sku" in stock["answer"].lower()
+
+
+async def test_owner_persona_is_not_available_to_guests(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "List pending orders", "mode": "multi_agent", "persona": "owner"},
+    )).json()
+    assert body["persona"] == "customer"
+
+
+async def test_lab_framework_modes_return_answers(client):
+    browse = (await client.post(
+        "/api/chat",
+        json={"message": "Search for iPhone and give me the prices", "mode": "multi_agent"},
+    )).json()
+    assert browse["answer"]
+    assert "iphone" in browse["answer"].lower() or "₹" in browse["answer"] or "inr" in browse["answer"].lower()
+
+    rag = (await client.post(
+        "/api/chat",
+        json={"message": "What is the return window for electronics?", "mode": "rag"},
+        headers=NAVEEN,
+    )).json()
+    assert rag["mode"] == "rag"
+    assert "10 days" in rag["answer"]
+
+    chat = (await client.post(
+        "/api/chat",
+        json={"message": "Hi, what can you help me with today?", "mode": "chat"},
+    )).json()
+    assert chat["mode"] == "chat"
+    assert chat["answer"]
+
+
 async def test_an_empty_message_is_rejected_by_the_schema(client):
     assert (await client.post("/api/chat", json={"message": ""}, headers=NAVEEN)).status_code == 422
 

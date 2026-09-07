@@ -55,6 +55,8 @@ export default function ProductPage() {
               Buy
             </button>
             <button type="button" className="sz-btn sz-btn-ghost" data-testid="pdp-save" onClick={() => toggleWishlist(p.id, p.title, p.price_inr)}>Save</button>
+            <button type="button" className="sz-btn sz-btn-ghost" data-testid="pdp-ask-buy" onClick={() => window.dispatchEvent(new CustomEvent('shopzone-ask-agent', { detail: { text: `Buy this ${p.title} with UPI`, persona: 'product' } }))}>Ask agent to buy</button>
+            <button type="button" className="sz-btn sz-btn-ghost" data-testid="pdp-ask-policy" onClick={() => window.dispatchEvent(new CustomEvent('shopzone-ask-agent', { detail: { text: 'What is the warranty and return window for this item?', persona: 'product' } }))}>Ask policy</button>
             <a className="sz-btn sz-btn-ghost" href={`/shop/product/${p.id}`} target="_blank" rel="noreferrer" data-testid="pdp-new-tab">Open in new tab</a>
           </div>
         </div>

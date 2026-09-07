@@ -36,6 +36,7 @@ SPECIALISTS = (
     "support",
     "recommendation",
     "admin",
+    "inventory",
 )
 
 

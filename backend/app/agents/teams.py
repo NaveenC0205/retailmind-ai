@@ -30,6 +30,7 @@ PRODUCT_SPECIALISTS = (
 OWNER_SPECIALISTS = (
     "admin",
     "inventory",
+    "product",
     "policy",
     "order",
     "support",
@@ -59,8 +60,9 @@ def supervisor_hint(persona: str) -> str:
     if persona == "owner":
         return (
             "You supervise the SELLER ops team. Delegate inventory/restock to inventory, "
-            "pending/approve/reject to admin, policy to policy, tickets to support. "
-            "Never shop for a customer. Cite retrieved policy when answering warranty or SLA."
+            "pending/approve/reject to admin, catalogue lookups to product, policy to policy, "
+            "tickets to support. Never shop or checkout for a customer. Cite retrieved policy "
+            "when answering warranty or SLA."
         )
     if persona == "product":
         return (

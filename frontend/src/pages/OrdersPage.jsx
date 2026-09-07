@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { fetchOrders, formatPrice, isLoggedIn } from '../api'
+import { fetchOrders, formatPrice, isLoggedIn, askAgent } from '../api'
 import { downloadOrdersCsv, downloadText } from '../store'
 import Loading from '../components/Loading'
 
@@ -85,6 +85,8 @@ export default function OrdersPage() {
             <div className="sz-meta" style={{ marginTop: 8 }}>{(o.items || []).length} item(s)</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <Link to={`/orders/${o.id}`} className="sz-btn sz-btn-blue" data-testid={`view-order-${o.id}`}>View details & shipping</Link>
+              <button type="button" className="sz-btn sz-btn-ghost" data-testid={`ask-track-${o.id}`} onClick={() => askAgent(`Where is my order ${o.id}?`)}>Track with assistant</button>
+              <button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent(`Can I return items on order ${o.id}?`)}>Ask about return</button>
               <Link to="/store" className="sz-btn sz-btn-ghost">Buy again</Link>
               <button
                 type="button"

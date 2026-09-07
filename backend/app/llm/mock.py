@@ -48,6 +48,9 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("checkout_help", ("buy now", "place order", "place an order", "i want to order",
                        "i want to buy", "checkout", "want to buy", "buy this", "buy it",
                        "order now", "pay with", "payment method", "payment option", "how do i pay")),
+    ("admin_ops", ("pending order", "approve order", "reject order", "low stock",
+                   "need restock", "need stock", "list pending", "order queue",
+                   "restock")),
     ("promotion", ("coupon", "promo", "discount", "offer")),
     ("shopping", ("laptop", "phone", "iphone", "oiphone", "macbook", "airpod", "headphone",
                   "search for", "find me", "looking for", "under ", "compare", "recommend",
@@ -224,6 +227,7 @@ SINGLE_AGENT_PLANS: dict[str, list[str]] = {
     "promotion": ["get_active_promotions"],
     "policy": ["retrieve_policy"],
     "checkout_help": ["search_products", "list_payment_methods", "create_order"],
+    "admin_ops": ["get_pending_orders", "list_low_stock"],
 }
 
 # Plans by SPECIALIST agent. A delegated sub-agent must not inherit the
@@ -238,7 +242,8 @@ AGENT_PLANS: dict[str, list[str]] = {
     "shopping": ["search_products", "compare_products"],
     "recommendation": ["get_recommendations"],
     "checkout": ["search_products", "list_payment_methods", "create_order"],
-    "admin": ["get_pending_orders"],
+    "admin": ["get_pending_orders", "approve_order", "reject_order"],
+    "inventory": ["list_low_stock", "check_inventory"],
 }
 
 # A specialist's plan narrows when the parent request does not need its full
@@ -250,6 +255,8 @@ AGENT_PLANS_BY_INTENT: dict[tuple[str, str], list[str]] = {
     ("order", "refund_status"): ["get_orders", "get_order"],
     ("order", "order_status"): ["get_order", "get_payment", "get_shipment", "track_shipment"],
     ("checkout", "checkout_help"): ["search_products", "list_payment_methods", "create_order"],
+    ("admin", "admin_ops"): ["get_pending_orders"],
+    ("inventory", "admin_ops"): ["list_low_stock"],
 }
 
 REFUND_CUES = ("refund", "money back", "compensat", "reimburse")
@@ -575,6 +582,13 @@ class MockLLM:
             }
         if tool in ("get_pending_orders", "list_low_stock"):
             return {}
+        if tool == "approve_order":
+            return {"order_id": extract_order_id(user_text) or facts.get("order_id") or "OR-20003"}
+        if tool == "reject_order":
+            return {
+                "order_id": extract_order_id(user_text) or facts.get("order_id") or "OR-20004",
+                "reason": "admin_rejected",
+            }
         return {}
 
     # -- answer composition -------------------------------------------
@@ -631,6 +645,22 @@ class MockLLM:
             )
         if intent == "promotion" and facts.get("promotions"):
             return "Active offers: " + ", ".join(facts["promotions"][:4]) + "."
+        if intent == "admin_ops":
+            if "low_stock" in facts:
+                items = facts.get("low_stock") or []
+                if not items:
+                    return "No SKUs are at or below the restock threshold."
+                bits = [
+                    f"{it.get('title')} ({it.get('product_id')}) — {it.get('available')} left"
+                    for it in items[:6]
+                ]
+                return "Low stock SKUs: " + "; ".join(bits) + "."
+            orders = facts.get("pending_orders") or []
+            if orders:
+                lines = [f"{o.get('order_id')} - {o.get('status', 'placed')}" for o in orders[:6]]
+                return "Pending orders: " + "; ".join(lines) + "."
+            if "pending_orders" in facts:
+                return "The pending order queue is empty."
         if facts.get("summary"):
             return str(facts["summary"])
         return (
@@ -681,6 +711,27 @@ class MockLLM:
             if facts.get("ticket_id"):
                 return f"I raised support ticket {facts['ticket_id']} so a person can follow up."
             return "I was not able to raise a support ticket for this."
+        if agent == "admin":
+            orders = facts.get("pending_orders") or []
+            if orders:
+                lines = [f"{o.get('order_id')} - {o.get('status', 'placed')}" for o in orders[:6]]
+                return "Pending orders: " + "; ".join(lines) + "."
+            if "pending_orders" in facts:
+                return "The pending order queue is empty."
+            return "I could not list pending orders."
+        if agent == "inventory":
+            if "low_stock" in facts:
+                items = facts.get("low_stock") or []
+                if not items:
+                    return "No SKUs are at or below the restock threshold."
+                bits = [
+                    f"{it.get('title')} ({it.get('product_id')}) — {it.get('available')} left"
+                    for it in items[:6]
+                ]
+                return "Low stock SKUs: " + "; ".join(bits) + "."
+            if facts.get("product_id") and facts.get("available") is not None:
+                return f"{facts['product_id']}: {facts.get('available')} available."
+            return "I could not check inventory."
         titles = facts.get("candidate_titles") or []
         if titles:
             prices = facts.get("candidate_prices") or []

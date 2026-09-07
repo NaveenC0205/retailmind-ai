@@ -43,7 +43,7 @@ export function MobileTabs() {
       <NavLink to="/" end data-testid="tab-home">Home</NavLink>
       <NavLink to="/store" data-testid="tab-store">Store</NavLink>
       <NavLink to="/cart" data-testid="tab-cart">Cart</NavLink>
-      <NavLink to="/orders" data-testid="tab-orders">Orders</NavLink>
+      <NavLink to="/lab" data-testid="tab-lab">Lab</NavLink>
       <NavLink to="/admin" data-testid="tab-admin">Seller</NavLink>
     </nav>
   )

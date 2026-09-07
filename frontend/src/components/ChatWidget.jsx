@@ -58,10 +58,18 @@ function welcomeFor(persona, loggedIn, name) {
   return PERSONAS[persona] || customerCopy(loggedIn, name)
 }
 
+const TEAM_AGENTS = {
+  customer: ['shopping', 'product', 'order', 'checkout', 'policy', 'refund', 'support', 'recommendation'],
+  product: ['product', 'shopping', 'policy', 'recommendation', 'checkout'],
+  owner: ['admin', 'inventory', 'product', 'policy', 'order', 'support'],
+}
+
 export default function ChatWidget({
   persona = 'customer',
   productContext = null,
   forceHide = false,
+  mode = 'multi_agent',
+  promptVersion = 'v1',
 }) {
   const [loggedIn, setLoggedIn] = useState(() => isLoggedIn())
   const name = typeof window !== 'undefined' ? (localStorage.getItem('customer_name') || '') : ''
@@ -75,7 +83,10 @@ export default function ChatWidget({
   const [conv, setConv] = useState(null)
   const [suggests, setSuggests] = useState(() => cfg.suggests)
   const [hydratedKey, setHydratedKey] = useState('')
+  const [liveAgents, setLiveAgents] = useState([])
+  const [lastMeta, setLastMeta] = useState(null)
   const endRef = useRef(null)
+  const sendRef = useRef(() => {})
 
   useEffect(() => {
     const sync = () => setLoggedIn(isLoggedIn())
@@ -120,6 +131,17 @@ export default function ChatWidget({
     fetchAgentStatus().then(setStatus)
   }, [])
 
+  useEffect(() => {
+    const onAsk = (e) => {
+      const d = e.detail || {}
+      if (d.persona && d.persona !== persona) return
+      setOpen(true)
+      if (d.text) setTimeout(() => sendRef.current(d.text), 80)
+    }
+    window.addEventListener('shopzone-ask-agent', onAsk)
+    return () => window.removeEventListener('shopzone-ask-agent', onAsk)
+  }, [persona])
+
   const liveLabel = useMemo(() => {
     if (!status) return 'Connecting…'
     if (status.llm_live) return `Live · ${status.llm_backend} · ${status.llm_model}`
@@ -146,10 +168,12 @@ export default function ChatWidget({
       return
     }
     setInput('')
+    setLiveAgents([])
     setMsgs((m) => [...m, { role: 'user', text: raw }, { role: 'bot', text: `${cfg.title} working…` }])
     try {
       const final = await chatStream(raw, conv, (ev) => {
         if (ev.type === 'agent' && ev.data?.type === 'agent_start') {
+          setLiveAgents((a) => Array.from(new Set([...a, ev.data.agent])))
           setMsgs((m) => {
             const copy = [...m]
             copy[copy.length - 1] = { role: 'bot', text: `${ev.data.agent} running…` }
@@ -174,9 +198,18 @@ export default function ChatWidget({
         if (ev.type === 'error') {
           throw new Error(ev.data?.message || 'Chat failed')
         }
-      }, { persona, productId: productContext?.id })
+      }, { persona, productId: productContext?.id, mode, promptVersion })
       if (final?.conversation_id) setConv(final.conversation_id)
       if (final?.suggestions?.length) setSuggests(final.suggestions)
+      setLastMeta({
+        framework: final?.framework || mode,
+        mode: final?.mode || mode,
+        terminal: final?.terminal_state,
+        trace: final?.trace_id,
+        run: final?.run_id,
+        approval: final?.approval_id,
+        agents: (final?.sub_results || []).map((s) => s.agent).filter(Boolean),
+      })
       const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 140)}`).join('\n')
       const cites = (final?.citations || []).slice(0, 4)
       const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
@@ -194,6 +227,8 @@ export default function ChatWidget({
       })
     }
   }
+
+  sendRef.current = send
 
   if (!open) {
     return (
@@ -220,6 +255,18 @@ export default function ChatWidget({
           </div>
           <div style={{ fontSize: 11, opacity: 0.7 }}>{cfg.sub}</div>
           <div className={`sz-chat-live ${status?.llm_live ? 'on' : 'off'}`} data-testid={`chat-live-${persona}`}>{liveLabel}</div>
+          {lastMeta && (
+            <div className="sz-chat-meta" data-testid={`chat-meta-${persona}`}>
+              {lastMeta.framework} · {lastMeta.mode}{lastMeta.terminal ? ` · ${lastMeta.terminal}` : ''}
+              {lastMeta.trace ? ` · ${lastMeta.trace}` : ''}
+              {lastMeta.approval ? ` · HITL ${lastMeta.approval}` : ''}
+            </div>
+          )}
+        </div>
+        <div className="sz-agent-chips" data-testid={`chat-agents-${persona}`}>
+          {(TEAM_AGENTS[persona] || TEAM_AGENTS.customer).map((a) => (
+            <span key={a} className={`sz-agent-chip ${(liveAgents.includes(a) || lastMeta?.agents?.includes(a)) ? 'on' : ''}`}>{a}</span>
+          ))}
         </div>
         <div className="sz-chat-msgs" data-testid={`chat-messages-${persona}`}>
           {msgs.map((m, i) => (

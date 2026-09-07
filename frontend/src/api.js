@@ -135,11 +135,12 @@ export async function fetchAgentStatus() {
 export async function chatStream(message, conversationId, onEvent, opts = {}) {
   const payload = {
     message,
-    mode: 'multi_agent',
+    mode: opts.mode || 'multi_agent',
     conversation_id: conversationId || undefined,
-    learn: true,
+    learn: opts.learn !== false,
     persona: opts.persona || 'customer',
     product_id: opts.productId || undefined,
+    prompt_version: opts.promptVersion || 'v1',
   };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
@@ -206,6 +207,54 @@ export async function chatStream(message, conversationId, onEvent, opts = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+export function askAgent(text, extras = {}) {
+  if (typeof window === 'undefined' || !text) return;
+  window.dispatchEvent(new CustomEvent('shopzone-ask-agent', { detail: { text, ...extras } }));
+}
+
+export async function fetchJson(path, init = {}) {
+  const res = await fetch(`${API}${path}`, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || data.message || `Request failed (${res.status})`);
+  return data;
+}
+
+export async function fetchApprovals(status = 'pending') {
+  return fetchJson(`/api/approvals?status=${encodeURIComponent(status)}`, { headers: authHeaders(false) });
+}
+
+export async function decideApproval(id, decision) {
+  return fetchJson(`/api/approvals/${id}`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ decision }),
+  });
+}
+
+export async function fetchRuns(limit = 20) {
+  return fetchJson(`/api/runs?limit=${limit}`, { headers: authHeaders(false) });
+}
+
+export async function fetchRun(id) {
+  return fetchJson(`/api/runs/${id}`, { headers: authHeaders(false) });
+}
+
+export async function fetchTools() {
+  return fetchJson('/api/tools');
+}
+
+export async function fetchDatasets() {
+  return fetchJson('/api/datasets');
+}
+
+export async function runEval(body) {
+  return fetchJson('/api/eval/run', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
 }
 
 export function formatPrice(n) {
