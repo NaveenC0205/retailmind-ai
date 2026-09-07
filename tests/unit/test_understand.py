@@ -53,3 +53,11 @@ def test_order_typos_route_to_order_list():
     assert "orders" in rewrite_query("can u check irders")
     assert detect_intent("can u check irders") == "order_list"
     assert detect_intent("check orders") == "order_list"
+
+
+def test_hindi_replies_are_flagged_for_english_rewrite():
+    from app.nlp.understand import needs_english_rewrite
+
+    assert needs_english_rewrite("Aapke orders check karne ke liye sign-in karna hoga.")
+    assert needs_english_rewrite("आपके ऑर्डर यहाँ हैं")
+    assert not needs_english_rewrite("Here are your recent ShopZone orders.")

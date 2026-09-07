@@ -406,7 +406,7 @@ class Orchestrator:
             Provenance.SYSTEM,
             "The shopper may misspell, skip letters, or mix Hindi/English. "
             "Infer what they meant and reply naturally, like ChatGPT — not a keyword bot. "
-            "Reply in the language they used: English in → English out. Only use Hindi or Hinglish if they did. "
+            "Always reply in English only. Never use Hindi or Hinglish in your answer. "
             "If they asked about products, offer to search the catalogue.",
         )
         if facts.get("logged_in"):
@@ -420,7 +420,7 @@ class Orchestrator:
             context.add(
                 Provenance.SYSTEM,
                 "This shopper is a guest. Catalogue search is fine. If they ask for THEIR orders, "
-                "say they need to sign in — in English unless they wrote in Hindi.",
+                "tell them in English that they need to sign in.",
             )
         if facts.get("understood_query") and facts.get("query_rewritten"):
             context.add(
@@ -628,7 +628,7 @@ class Orchestrator:
             "The customer may misspell, skip letters, or mix Hindi, Hinglish, and English. "
             "Infer what they meant. Answer naturally using ONLY the catalogue rows. "
             "Never invent a price, product, or discount. Keep it under 160 words. "
-            "If they wrote in Hindi/Hinglish you may reply in the same mix. "
+            "Always reply in English only. "
             "End with one useful follow-up question."
         )
         prompt = (
@@ -1338,7 +1338,8 @@ class Orchestrator:
                 f"The current customer is {self.principal.customer_id}"
                 + (f" ({facts.get('customer_name')})" if facts.get("customer_name") else "")
                 + ". Always pass this as customer_id when a tool requires it. "
-                + ("They are logged in — never ask them to sign in; call get_orders/get_payment for their account." if facts.get("logged_in") else "They are a guest — do not create_order."),
+                + ("They are logged in — never ask them to sign in; call get_orders/get_payment for their account." if facts.get("logged_in") else "They are a guest — do not create_order.")
+                + " Write every customer-facing sentence in English.",
             )
             if facts.get("orders"):
                 brief = "; ".join(
@@ -1379,7 +1380,7 @@ class Orchestrator:
         if facts.get("understood_query") and facts.get("query_rewritten"):
             context.add(
                 Provenance.SYSTEM,
-                "The shopper may misspell or mix Hindi/English. Treat this as their intent: "
+                "The shopper may misspell or mix Hindi/English; still answer in English. Their intent reads as: "
                 + str(facts.get("understood_query")),
             )
 
@@ -1449,6 +1450,36 @@ class Orchestrator:
             )
         )
 
+    async def _ensure_english_reply(self, answer: str) -> str:
+        from app.nlp.understand import needs_english_rewrite
+
+        if not needs_english_rewrite(answer):
+            return answer
+        s = get_settings()
+        if s.llm_provider == "mock" or s.cassette_mode == "replay":
+            return answer
+        try:
+            completion = await self.router.complete(
+                CompletionRequest(
+                    prompt=(
+                        "Rewrite this ShopZone assistant reply in English only. "
+                        "Keep every fact, price, product name, and order id. "
+                        "No Hindi or Hinglish.\n\n"
+                        + (answer or "")
+                    ),
+                    system="You translate shop assistant replies into English. Output only the rewritten reply.",
+                    purpose="chat",
+                    max_tokens=400,
+                    temperature=0.0,
+                )
+            )
+            text = (completion.text or "").strip()
+            if text and not needs_english_rewrite(text):
+                return text
+        except Exception:  # noqa: BLE001 — keep original if rewrite fails
+            pass
+        return answer
+
     # ------------------------------------------------------------------
     async def _finish(
         self,
@@ -1469,6 +1500,7 @@ class Orchestrator:
     ) -> RunResult:
         latency_ms = int((time.perf_counter() - started) * 1000)
         facts = facts or {}
+        answer = await self._ensure_english_reply(answer)
         result = RunResult(
             answer=answer,
             terminal_state=terminal.value,

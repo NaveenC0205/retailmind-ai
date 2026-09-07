@@ -267,3 +267,19 @@ def understand(text: str) -> Understood:
 
 def rewrite_query(text: str) -> str:
     return understand(text).rewritten
+
+
+_DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+_NON_ENGLISH_MARKERS = (
+    "aapke", "aapko", "chahenge", "karna hoga", "kya aap", "kripya",
+    "dhanyavaad", "namaste", "ji haan", "bilkul", "zaroor",
+)
+
+
+def needs_english_rewrite(text: str) -> bool:
+    """True when a customer-facing reply slipped into Hindi/Hinglish."""
+    raw = text or ""
+    if _DEVANAGARI.search(raw):
+        return True
+    low = raw.lower()
+    return any(m in low for m in _NON_ENGLISH_MARKERS)
