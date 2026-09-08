@@ -26,6 +26,7 @@ async def test_health_reports_the_active_configuration(client):
     body = r.json()
     assert body["status"] == "ok"
     assert body["tools"] >= 20
+    assert body.get("db") in {"sqlite", "postgres"}
 
 
 async def test_ready_reports_seeded_state(client):

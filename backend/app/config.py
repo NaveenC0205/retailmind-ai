@@ -32,6 +32,25 @@ _DEFAULT_DB = (
 )
 
 
+def normalize_database_url(url: str) -> str:
+    """Accept sqlite, postgres://, Supabase, and Neon URLs for SQLAlchemy async.
+
+    Supabase / Neon dashboards copy `postgresql://...`. This app needs
+    `postgresql+asyncpg://` plus SSL on hosted Postgres.
+    """
+    u = (url or "").strip().strip('"').strip("'")
+    if not u:
+        return u
+    if u.startswith("postgres://"):
+        u = "postgresql://" + u[len("postgres://") :]
+    if u.startswith("postgresql://") and "+asyncpg" not in u.split("://", 1)[0]:
+        u = "postgresql+asyncpg://" + u[len("postgresql://") :]
+    hosted = any(h in u for h in ("supabase.co", "neon.tech", "pooler.supabase", "amazonaws.com"))
+    if hosted and "ssl=" not in u.lower():
+        u += ("&" if "?" in u else "?") + "ssl=require"
+    return u
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=os.environ.get("RETAILMIND_ENV_FILE", str(REPO_ROOT / ".env")),
@@ -131,6 +150,10 @@ class Settings(BaseSettings):
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
 
+    @property
+    def is_postgres(self) -> bool:
+        return "postgresql" in (self.database_url or "")
+
 
 def _hosted_deploy() -> bool:
     return bool(
@@ -205,6 +228,7 @@ def bind_hosted_llm(s: Settings) -> Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     s = Settings()
+    object.__setattr__(s, "database_url", normalize_database_url(s.database_url) or s.database_url)
     # Vercel (and similar) ship a read-only filesystem except /tmp. If our
     # configured var_dir is not writable, fall back so import/startup cannot crash.
     try:
@@ -216,7 +240,8 @@ def get_settings() -> Settings:
         tmp = Path("/tmp/retailmind")
         tmp.mkdir(parents=True, exist_ok=True)
         object.__setattr__(s, "var_dir", tmp)
-        object.__setattr__(s, "database_url", "sqlite+aiosqlite:////tmp/retailmind.db")
+        if s.is_sqlite:
+            object.__setattr__(s, "database_url", "sqlite+aiosqlite:////tmp/retailmind.db")
     return bind_hosted_llm(s)
 
 

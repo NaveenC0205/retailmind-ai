@@ -94,7 +94,7 @@ async def _emit(sink: Optional[EventSink], payload: dict) -> None:
 
 
 def _use_langchain_react(orch, agent_name: str = "") -> bool:
-    """Live ReAct hangs shop chat on Vercel. Native/mock loop stays eval-safe."""
+    """Specialist ReAct is off; the live shopper uses run_react_shopper instead."""
     return False
 
 

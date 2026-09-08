@@ -7,6 +7,7 @@ pydantic>=2.6
 pydantic-settings>=2.2
 sqlalchemy[asyncio]>=2.0.25
 aiosqlite>=0.19
+asyncpg>=0.29
 httpx>=0.26
 python-multipart>=0.0.9
 bcrypt>=4.0

@@ -78,6 +78,7 @@ async def health():
         "llm_backend": s.llm_backend,
         "llm_model": s.llm_model if s.llm_backend != "mock" else "mock-1",
         "llm_live": s.llm_backend != "mock" and bool(s.openai_api_key or s.llm_provider == "ollama"),
+        "db": "postgres" if s.is_postgres else "sqlite",
         "embedding_provider": s.embedding_provider,
         "agentic": True,
         "teams": ["customer", "product", "owner"],

@@ -1361,13 +1361,20 @@ class Orchestrator:
         return answer, TerminalState.COMPLETED, sub, facts.get("citation_ids", []), facts, ""
 
     async def _run_multi(self, text: str, facts: dict, intent: str, event_sink=None):
-        """Multi-agent mode runs on LangGraph (LangChain multi-agent framework).
+        """Multi-agent mode: live ReAct (real DB tools) when an LLM key is set.
 
-        Supervisor + specialist StateGraph scoped to the chat persona
-        (customer / product / owner). Specialists use the native tool loop
-        under mock/eval, or LangChain ``create_react_agent`` when a live key exists.
-        Catalogue browse short-circuits so guest price search cannot hang.
+        Matches the working LangChain shop agent: create_react_agent + SQLite tools.
+        Mock/eval keeps catalogue/order short-circuits and the native loop.
         """
+        from app.agents.react_runtime import live_react_enabled, run_react_shopper
+
+        if live_react_enabled():
+            try:
+                live = await run_react_shopper(self, text, facts, event_sink)
+                if live:
+                    return live
+            except Exception:  # noqa: BLE001 — fall back to deterministic specialists
+                pass
         fast = await self._fast_catalogue_browse(text, facts, intent, event_sink)
         if fast:
             return fast

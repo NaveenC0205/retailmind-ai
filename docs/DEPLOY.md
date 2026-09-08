@@ -74,6 +74,24 @@ is fine, because the seed data is deterministic. If you want persistence,
 either upgrade or point `DATABASE_URL` at a hosted Postgres (Neon and Supabase
 both have free tiers).
 
+### Free Postgres (Supabase or Neon) — keep orders after Vercel restarts
+
+Vercel’s default SQLite file lives in `/tmp` and is wiped on every cold start,
+so newly placed orders look like “mock data”. Point production at a free
+Postgres project:
+
+1. [Supabase](https://supabase.com) → New project → **Project Settings → Database → URI**  
+   or [Neon](https://neon.tech) → New project → connection string.
+2. Vercel → Project → Settings → Environment Variables → `DATABASE_URL`  
+   (production + preview). Paste the URI as copied; ShopZone rewrites
+   `postgres://` to `postgresql+asyncpg://` and adds `ssl=require`.
+3. Redeploy. `/health` should show `"db": "postgres"`. First boot seeds the
+   catalogue; after that, chat `create_order` / `get_orders` hit the same DB.
+
+```
+DATABASE_URL=postgresql://postgres:[PASSWORD]@db.<ref>.supabase.co:5432/postgres
+```
+
 ## 2 · Render
 
 ```bash

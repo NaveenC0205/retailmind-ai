@@ -232,10 +232,18 @@ export default function ChatWidget({
         agents: (final?.sub_results || []).map((s) => s.agent).filter(Boolean),
       })
       const rawAnswer = String(final?.answer || '').trim()
-      const sub = (final?.sub_results || []).map((s) => `• ${s.agent}: ${String(s.summary || '').slice(0, 140)}`).join('\n')
+      const sub = (final?.sub_results || [])
+        .filter((s) => s?.agent && s.agent !== 'react')
+        .map((s) => {
+          const summary = String(s.summary || '').trim()
+          if (!summary || rawAnswer.startsWith(summary.slice(0, 48))) return ''
+          return `• ${s.agent}: ${summary.slice(0, 140)}`
+        })
+        .filter(Boolean)
+        .join('\n')
       const cites = (final?.citations || []).slice(0, 4)
       const citeLine = cites.length ? `\n\nSources: ${cites.join(', ')}` : ''
-      const answer = (rawAnswer || 'I could not finish that reply. Try once more — search, return policy, or your orders.') + (sub && rawAnswer ? `\n\n${sub}` : '') + citeLine
+      const answer = (rawAnswer || 'I could not finish that reply. Try once more — search, return policy, or your orders.') + (sub ? `\n\n${sub}` : '') + citeLine
       setMsgs((m) => [...m, { role: 'bot', text: answer }])
     } catch (e) {
       setMsgs((m) => [...m, { role: 'bot', text: String(e.message || e) }])

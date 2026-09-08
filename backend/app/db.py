@@ -22,9 +22,12 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         s = get_settings()
-        kwargs: dict = {"echo": False, "future": True}
+        kwargs: dict = {"echo": False, "future": True, "pool_pre_ping": True}
         if s.is_sqlite:
             kwargs["connect_args"] = {"check_same_thread": False}
+        elif s.is_postgres:
+            kwargs["pool_size"] = 5
+            kwargs["max_overflow"] = 5
         _engine = create_async_engine(s.database_url, **kwargs)
     return _engine
 
