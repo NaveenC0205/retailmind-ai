@@ -4,7 +4,7 @@ import { addToCart, toggleWishlist } from '../store'
 
 export default function ProductCard({ p }) {
   return (
-    <article className="sz-card" data-testid={`product-card-${p.id}`} data-product-id={p.id}>
+    <article data-depth-card className="sz-card" data-testid={`product-card-${p.id}`} data-product-id={p.id}>
       <Link to={`/product/${p.id}`} data-testid={`product-link-${p.id}`}>
         <div className="sz-card-img">
           <img src={productImage(p)} alt={p.title} loading="lazy" data-testid={`product-img-${p.id}`} />

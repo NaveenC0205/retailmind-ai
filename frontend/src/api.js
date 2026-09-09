@@ -79,6 +79,7 @@ export function logout() {
 export async function fetchProducts() {
   const res = await fetch(`${API}/api/products?limit=500`);
   const data = await res.json();
+  if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not load products');
   return data.products || [];
 }
 
@@ -110,11 +111,11 @@ export async function register(name, email, password) {
   return data;
 }
 
-export async function placeOrder(items, address, payment_method) {
+export async function placeOrder(items, address, payment_method, extras = {}) {
   const res = await fetch(`${API}/api/orders`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ items, address, payment_method }),
+    body: JSON.stringify({ items, address, payment_method, ...extras }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || 'Order failed');
@@ -125,6 +126,7 @@ export async function fetchOrders() {
   const cid = localStorage.getItem('customer_id');
   const res = await fetch(`${API}/api/customers/${cid}/orders`, { headers: authHeaders(false) });
   const data = await res.json();
+  if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not load orders');
   return data.orders || [];
 }
 

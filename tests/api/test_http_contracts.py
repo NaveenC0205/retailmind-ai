@@ -501,3 +501,37 @@ async def test_learning_library_contains_only_public_policy_sources(client):
     assert all(source['family'] in {'return_policy', 'refund_policy', 'warranty_policy', 'shipping_policy', 'privacy_policy', 'promotions_policy'} for source in sources)
     assert all(source['content'] and source['chunk_id'] for source in sources)
     assert all(not source['chunk_id'].startswith('seller-') for source in sources)
+
+
+async def test_checkout_uses_catalogue_prices_and_persists_coupon_and_address(client):
+    from datetime import date, timedelta
+    product = (await client.get('/api/products/PR-P003')).json()
+    body = {'items': [{'product_id': 'PR-P003', 'qty': 2, 'unit_price_inr': 1}],
+            'address': '22 Example Road, Bengaluru', 'payment_method': 'upi',
+            'coupon_code': 'SAVE10', 'delivery_date': (date.today() + timedelta(days=3)).isoformat(),
+            'request_id': 'checkout-regression-discount-01'}
+    response = await client.post('/api/orders', json=body, headers=SHOPPER)
+    assert response.status_code == 200, response.text
+    order = response.json()
+    subtotal = product['price_inr'] * 2
+    assert order['total_inr'] == subtotal - (subtotal + 5) // 10
+    details = (await client.get(f"/api/orders/{order['order_id']}", headers=SHOPPER)).json()
+    assert details['checkout']['address'] == body['address']
+    assert details['checkout']['coupon_code'] == 'SAVE10'
+    assert details['items'][0]['unit_price_inr'] == product['price_inr']
+    assert details['payments'][0]['amount_inr'] == order['total_inr']
+    repeated = await client.post('/api/orders', json=body, headers=SHOPPER)
+    assert repeated.json()['order_id'] == order['order_id']
+    body['items'][0]['qty'] = 1
+    assert (await client.post('/api/orders', json=body, headers=SHOPPER)).status_code == 409
+
+
+@pytest.mark.parametrize('change', [
+    {'items': [{'product_id': 'PR-P003', 'qty': 0}]},
+    {'items': [{'product_id': 'PR-P003', 'qty': -1}]},
+    {'items': [{'product_id': 'PR-P003', 'qty': 101}]},
+    {'payment_method': 'invalid'}, {'coupon_code': 'FAKE'}, {'delivery_date': '2020-01-01'},
+])
+async def test_checkout_rejects_invalid_values(client, change):
+    body = {'items': [{'product_id': 'PR-P003', 'qty': 1}], **change}
+    assert (await client.post('/api/orders', json=body, headers=SHOPPER)).status_code == 422

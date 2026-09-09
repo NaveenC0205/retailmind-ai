@@ -17,7 +17,7 @@ export default function WishlistPage() {
       {!items.length && <p data-testid="wishlist-empty">Nothing saved. <Link to="/store">Browse store</Link></p>}
       <div className="sz-grid" style={{ marginTop: 24 }}>
         {items.map((p) => (
-          <article key={p.id} className="sz-card" data-testid={`wish-${p.id}`}>
+          <article data-depth-card key={p.id} className="sz-card" data-testid={`wish-${p.id}`}>
             <Link to={`/product/${p.id}`}><div className="sz-card-img"><img src={productImage(p)} alt="" /></div></Link>
             <div className="sz-card-body">
               <div className="sz-card-title">{p.title}</div>

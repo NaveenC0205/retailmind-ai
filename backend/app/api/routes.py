@@ -7,7 +7,8 @@ everywhere -- see app/security.py.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Literal
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from fastapi.responses import StreamingResponse
@@ -40,8 +41,11 @@ from app.models import (
     Message,
     Order,
     OrderItem,
+    OrderCheckout,
     Product,
     Payment,
+    Shipment,
+    ShipmentEvent,
     Span,
     ToolCall,
     new_id,
@@ -870,8 +874,11 @@ async def get_order(
     except ValueError:
         idx = -1
 
+    checkout = await session.get(OrderCheckout, order_id)
+    checkout_data = checkout.details if checkout else {}
     return {
         "id": order.id,
+        "checkout": {key: checkout_data.get(key) for key in ["address", "delivery_date", "coupon_code", "subtotal_inr", "discount_inr"]},
         "customer_id": order.customer_id,
         "status": order.status,
         "total_inr": order.total_inr,
@@ -896,14 +903,17 @@ async def get_order(
 
 class CreateOrderItem(BaseModel):
     product_id: str
-    qty: int = 1
-    unit_price_inr: Optional[int] = None
+    qty: int = Field(default=1, ge=1, le=100)
+    unit_price_inr: Optional[int] = Field(default=None, ge=0)
 
 
 class CreateOrderRequest(BaseModel):
-    items: list[CreateOrderItem]
-    address: str = ""
-    payment_method: str = "upi"
+    items: list[CreateOrderItem] = Field(min_length=1, max_length=100)
+    address: str = Field(default="", max_length=1000)
+    payment_method: Literal["upi", "card", "cod"] = "upi"
+    coupon_code: str = Field(default="", max_length=40)
+    delivery_date: Optional[date] = None
+    request_id: Optional[str] = Field(default=None, min_length=16, max_length=100)
 
 
 @router.post("/api/orders", tags=["shop"])
@@ -918,7 +928,18 @@ async def create_order(
     if not body.items:
         raise HTTPException(400, "order must have at least one item")
     
-    order_id = new_id("OR")
+    payload_hash = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
+    order_id = ("OR-" + hashlib.sha256(f"{principal.customer_id}:{body.request_id}".encode()).hexdigest()[:24].upper()) if body.request_id else new_id("OR")
+    existing = await session.get(OrderCheckout, order_id)
+    if existing:
+        if existing.details.get("request_hash") != payload_hash:
+            raise HTTPException(409, "This checkout was already submitted with different details. Start a new checkout.")
+        return existing.details["response"]
+    if body.delivery_date and not date.today() < body.delivery_date <= date.today() + timedelta(days=21):
+        raise HTTPException(422, "Choose a delivery date between tomorrow and 21 days from today")
+    coupon = body.coupon_code.strip().upper()
+    if coupon not in {"", "SAVE10", "SAVE50", "FREESHIP"}:
+        raise HTTPException(422, "Unknown coupon")
     total_inr = 0
     order_items = []
     
@@ -927,7 +948,7 @@ async def create_order(
         if not product:
             raise HTTPException(400, f"product not found: {item.product_id}")
         
-        price = item.unit_price_inr if item.unit_price_inr else product.price_inr
+        price = product.price_inr
         item_total = price * item.qty
         total_inr += item_total
         
@@ -940,6 +961,10 @@ async def create_order(
         )
         order_items.append(order_item)
     
+    subtotal_inr = total_inr
+    discount_inr = min(subtotal_inr, (subtotal_inr + 5) // 10 if coupon == "SAVE10" else 50 if coupon == "SAVE50" else 0)
+    total_inr -= discount_inr
+
     order = Order(
         id=order_id,
         customer_id=principal.customer_id,
@@ -961,15 +986,26 @@ async def create_order(
     )
     session.add(payment)
     
-    await session.commit()
-    
-    return {
-        "order_id": order_id,
-        "status": "placed",
-        "total_inr": total_inr,
-        "items_count": len(order_items),
-        "message": "Order placed successfully",
+    response = {
+        "order_id": order_id, "status": "placed", "total_inr": total_inr,
+        "subtotal_inr": subtotal_inr, "discount_inr": discount_inr,
+        "items_count": len(order_items), "message": "Order placed successfully",
     }
+    session.add(OrderCheckout(order_id=order_id, details={
+        "address": body.address.strip(), "delivery_date": body.delivery_date.isoformat() if body.delivery_date else None,
+        "coupon_code": coupon, "subtotal_inr": subtotal_inr, "discount_inr": discount_inr,
+        "request_hash": payload_hash, "response": response,
+    }))
+    from sqlalchemy.exc import IntegrityError
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        duplicate = await session.get(OrderCheckout, order_id)
+        if duplicate and duplicate.details.get("request_hash") == payload_hash:
+            return duplicate.details["response"]
+        raise HTTPException(409, "Checkout changed or was submitted concurrently. Check your orders before retrying.")
+    return response
 
 
 # ======================================================================

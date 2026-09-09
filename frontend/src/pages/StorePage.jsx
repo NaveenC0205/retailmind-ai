@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { fetchProducts, formatPrice } from '../api'
+import { fetchProducts, askAgent } from '../api'
+import DeviceScene from '../components/DeviceScene'
 import ProductCard from '../components/ProductCard'
-import LazyModule from '../components/LazyModule'
 import Loading from '../components/Loading'
 import FilterDrawer from '../components/FilterDrawer'
 
@@ -19,6 +19,8 @@ const CAT_MAP = {
 export default function StorePage({ homeModules = false }) {
   const { slug } = useParams()
   const [params] = useSearchParams()
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
   const [all, setAll] = useState([])
   const [loading, setLoading] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -34,28 +36,14 @@ export default function StorePage({ homeModules = false }) {
   })
 
   useEffect(() => {
+    let active = true
     setLoading(true)
-    fetchProducts().then(setAll).finally(() => setLoading(false))
-  }, [])
+    setError('')
+    fetchProducts().then((rows) => { if (active) setAll(rows) }).catch((e) => { if (active) setError(e.message) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [retry])
 
-  useEffect(() => {
-    if (slug && CAT_MAP[slug]) setFilters((f) => ({ ...f, cat: CAT_MAP[slug] }))
-  }, [slug])
-
-  useEffect(() => {
-    const qq = params.get('q') || ''
-    const cc = params.get('cat') || ''
-    setFilters((f) => ({
-      ...f,
-      q: qq || f.q,
-      cat: cc ? (CAT_MAP[cc] || cc) : f.cat,
-    }))
-  }, [params])
-
-  const elec = useMemo(
-    () => all.filter((p) => ['laptops', 'phones', 'audio', 'monitors', 'accessories'].includes(p.category)),
-    [all],
-  )
+  const elec = all
   const brands = useMemo(() => [...new Set(elec.map((p) => p.brand))].sort(), [elec])
 
   const filtered = useMemo(() => {
@@ -79,40 +67,17 @@ export default function StorePage({ homeModules = false }) {
     return rows
   }, [elec, filters])
 
+  const loadState = error ? <div className="sz-empty" role="alert"><h2>We couldn’t load the catalogue</h2><p>{error}</p><button className="sz-btn sz-btn-blue" onClick={() => setRetry((n) => n + 1)}>Try again</button></div> : loading ? <Loading label="Loading products…" testId="store-loading" /> : null
   if (homeModules) {
-    return (
-      <div data-testid="home-page">
-        <section className="sz-hero" data-testid="hero-module">
-          <h1>iPhone</h1>
-          <p>Meet the lineup. Designed for agentic & automation testing.</p>
-          <div className="sz-hero-links">
-            <Link to="/c/iphone" data-testid="hero-learn">Learn more</Link>
-            <Link to="/store?cat=phones" data-testid="hero-shop">Shop iPhone</Link>
-          </div>
-          <div className="sz-hero-media">
-            <img src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=1600&q=80" alt="iPhone hero" />
-          </div>
-        </section>
-        <LazyModule testId="module-mac" className="sz-module">
-          <h2>Mac</h2>
-          <p className="lead">Supercharged notebooks for every workflow.</p>
-          <div className="sz-hero-links">
-            <Link to="/c/mac">Learn more</Link>
-            <Link to="/store?cat=laptops">Buy</Link>
-          </div>
-        </LazyModule>
-        <LazyModule testId="module-grid" className="sz-module gray">
-          <h2>New arrivals</h2>
-          <p className="lead">{elec.length}+ electronics SKUs</p>
-          <div className="sz-wrap">
-            <div className="sz-grid" data-testid="home-product-grid">
-              {elec.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} />)}
-            </div>
-            <p style={{ marginTop: 24 }}><Link to="/store" className="sz-btn sz-btn-blue">View all</Link></p>
-          </div>
-        </LazyModule>
-      </div>
-    )
+    return <div data-testid="home-page" className="sz-home">
+      <section className="sz-discover-hero" data-testid="hero-module">
+        <div className="sz-discover-copy"><span className="sz-eyebrow">DISCOVER A NEW DIMENSION</span><h1>Your world.<br /><span>Upgraded.</span></h1><p>Discover tech and more, compare the details, and find the right fit with your AI shopping assistant.</p><div className="sz-hero-ctas"><Link to="/store" className="sz-btn sz-btn-blue" data-testid="hero-shop">Explore the store ↗</Link><button type="button" className="sz-btn sz-btn-ghost" onClick={() => askAgent('Help me find a laptop under 80000')}>✦ Ask the assistant</button></div><Link to="/lab" className="sz-hero-lab" data-testid="hero-learn">Learning AI testing? Enter the Test Lab →</Link></div>
+        <DeviceScene />
+      </section>
+      <nav className="sz-category-cards" aria-label="Shop by category">{[['phones','01','Phones'],['laptops','02','Laptops'],['audio','03','Audio'],['monitors','04','Monitors'],['accessories','05','Accessories']].map(([id,n,label]) => <Link key={id} to={`/c/${id}`} data-depth-card><span>{n}</span><strong>{label}</strong><span aria-hidden="true">↗</span></Link>)}</nav>
+      <section className="sz-featured" data-testid="module-grid"><div className="sz-section-head"><div><span className="sz-eyebrow">THE EDIT</span><h2>Discover the catalogue</h2></div><Link to="/store">View all products →</Link></div>{loadState}<div className="sz-grid" data-testid="home-product-grid">{!loading && !error && elec.slice(0,8).map((p) => <ProductCard key={p.id} p={p} />)}</div></section>
+      <section className="sz-explore-lab" data-testid="module-mac"><div><span className="sz-eyebrow">BEYOND THE STOREFRONT</span><h2>Learn AI by<br />putting it to the test.</h2><p>Explore RAG answers, compare agents, inspect their actions, and build evidence for your next test report.</p><Link to="/lab" className="sz-btn sz-btn-blue">Open the AI workshop ↗</Link></div><div className="sz-lab-preview"><div><span>01</span><strong>Ask & compare</strong><p>One question. Four execution modes.</p></div><div><span>02</span><strong>Inspect the evidence</strong><p>Policy sources, tool use, and conversation context.</p></div><div><span>03</span><strong>Record your verdict</strong><p>Review results and export your findings.</p></div></div></section>
+    </div>
   }
 
   const activeChips = [
@@ -128,7 +93,7 @@ export default function StorePage({ homeModules = false }) {
     <div className="sz-wrap" data-testid="store-page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 40, fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>Store</h1>
+          <span className="sz-eyebrow">FIND YOUR NEXT FAVORITE</span><h1>{filters.cat ? filters.cat.charAt(0).toUpperCase() + filters.cat.slice(1) : 'Explore the store'}</h1>
           <p style={{ color: 'var(--muted)' }} data-testid="store-count">{filtered.length} products from catalogue</p>
         </div>
         <button type="button" className="sz-btn sz-btn-dark" data-testid="open-filters" onClick={() => setDrawerOpen(true)}>
@@ -144,25 +109,22 @@ export default function StorePage({ homeModules = false }) {
         </div>
       )}
 
+      {error && loadState}
       <div className="sz-grid" data-testid="store-grid">
         {loading && <Loading label="Loading products from database…" testId="store-loading" />}
-        {!loading && !filtered.length && <p data-testid="store-empty">No products match. Open Filters to change criteria.</p>}
-        {!loading && filtered.map((p) => <ProductCard key={p.id} p={p} />)}
+        {!loading && !error && !filtered.length && <p data-testid="store-empty">No products match. Open Filters to change criteria.</p>}
+        {!loading && !error && filtered.map((p) => <ProductCard key={p.id} p={p} />)}
       </div>
-      {!loading && filtered[0] && (
-        <p className="sz-meta" style={{ marginTop: 16 }}>Sample price {formatPrice(filtered[0].price_inr)}</p>
-      )}
-
       <FilterDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         brands={brands}
+        categories={[...new Set(all.map((p) => p.category))].sort()}
         value={filters}
         onApply={(next) => {
-          setLoading(true)
           setFilters(next)
-          // brief loading flash so automation can assert reload
-          setTimeout(() => setLoading(false), 150)
+          // State owns all filters during this visit; navigation starts fresh.
+
         }}
       />
     </div>

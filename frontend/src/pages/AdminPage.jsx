@@ -48,6 +48,7 @@ export default function AdminPage() {
         fetch('/api/admin/orders?limit=200', { headers: authHeaders(false) }),
         fetch('/api/admin/inventory', { headers: authHeaders(false) }),
       ])
+      if (![pRes, oRes, iRes].every((response) => response.ok)) throw new Error('Dashboard request failed')
       const pData = await pRes.json()
       const oData = await oRes.json()
       const iData = await iRes.json()
@@ -381,7 +382,7 @@ export default function AdminPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button type="button" className="sz-btn sz-btn-blue" data-testid="preview-reload" onClick={() => {
               const el = document.getElementById('seller-preview-frame')
-              if (el) el.src = el.src
+              if (el) el.src = '/shop/store'
             }}>Reload preview</button>
             <a className="sz-btn sz-btn-ghost" href="/shop/store" target="_blank" rel="noreferrer">Open in new tab</a>
           </div>

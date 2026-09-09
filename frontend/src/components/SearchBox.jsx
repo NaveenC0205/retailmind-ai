@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchProducts } from '../api'
 
@@ -8,7 +8,8 @@ export default function SearchBox({ compact = false }) {
   const [cat, setCat] = useState('')
   const [all, setAll] = useState([])
   const [open, setOpen] = useState(false)
-  const [active, setActive] = useState(0)
+  const [active, setActive] = useState(-1)
+  const listId = useId()
   const wrapRef = useRef(null)
   const nav = useNavigate()
 
@@ -26,7 +27,7 @@ export default function SearchBox({ compact = false }) {
 
   const suggestions = useMemo(() => {
     const qq = q.trim().toLowerCase()
-    const pool = all.filter((p) => ['phones', 'laptops', 'audio', 'monitors', 'accessories'].includes(p.category))
+    const pool = all
     const filtered = cat ? pool.filter((p) => p.category === cat) : pool
     if (!qq) {
       // show popular options
@@ -67,7 +68,7 @@ export default function SearchBox({ compact = false }) {
 
   function onSubmit(e) {
     e.preventDefault()
-    if (suggestions[active]) go(suggestions[active])
+    if (open && active >= 0 && suggestions[active]) go(suggestions[active])
     else go({ type: 'query', value: q })
   }
 
@@ -85,7 +86,7 @@ export default function SearchBox({ compact = false }) {
         <input
           data-testid="nav-search-input"
           value={q}
-          onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(0) }}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(-1) }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
             if (!open) return
@@ -95,17 +96,21 @@ export default function SearchBox({ compact = false }) {
           }}
           placeholder="Search products, brands, categories…"
           aria-label="Search"
+          role="combobox"
+          aria-controls={listId}
+          aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
           aria-autocomplete="list"
           aria-expanded={open}
         />
         <button type="submit" data-testid="nav-search-btn" aria-label="Search">⌕</button>
       </form>
       {open && suggestions.length > 0 && (
-        <ul className="sz-ac-list" data-testid="search-suggestions" role="listbox">
+        <ul className="sz-ac-list" data-testid="search-suggestions" role="listbox" id={listId}>
           {suggestions.map((s, i) => (
             <li
               key={`${s.type}-${s.label}-${i}`}
               role="option"
+              id={`${listId}-${i}`}
               aria-selected={i === active}
               className={i === active ? 'active' : ''}
               data-testid={`search-suggestion-${i}`}

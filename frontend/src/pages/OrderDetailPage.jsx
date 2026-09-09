@@ -17,6 +17,7 @@ export default function OrderDetailPage() {
       return
     }
     setLoading(true)
+    setErr('')
     fetch(`/api/orders/${id}`, { headers: authHeaders(false) })
       .then(async (r) => {
         const d = await r.json()
@@ -66,8 +67,9 @@ export default function OrderDetailPage() {
         Status: {order.status}
       </p>
 
+      {order.checkout?.address && <section className="sz-lab-card" style={{ marginTop: 20 }}><h2>Delivery details</h2><p>{order.checkout.address}</p><p>Requested date: {order.checkout.delivery_date || 'Standard delivery'}</p>{order.checkout.coupon_code && <p>Coupon: {order.checkout.coupon_code} · Discount: {formatPrice(order.checkout.discount_inr)}</p>}</section>}
       {!cancelled && (
-        <div className="sz-timeline" data-testid="order-timeline">
+      <div className="sz-timeline" data-testid="order-timeline">
           {timeline.map((step, i) => (
             <div
               key={step}

@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 /** Side drawer filters — apply reloads listing from in-memory DB catalogue */
 export default function FilterDrawer({
   open,
   onClose,
   brands = [],
+  categories = [],
   value,
   onApply,
 }) {
   const [local, setLocal] = useState(value)
+  const panel = useRef(null)
 
   useEffect(() => {
     if (open) setLocal(value)
@@ -16,9 +18,22 @@ export default function FilterDrawer({
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const previous = document.activeElement
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    panel.current?.querySelector('button')?.focus()
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
+      if (event.key === 'Tab') {
+        const controls = panel.current?.querySelectorAll('button, input, select, textarea, a[href]')
+        if (!controls?.length) return
+        const first = controls[0], last = controls[controls.length - 1]
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+      }
+    }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = overflow; previous?.focus() }
   }, [open, onClose])
 
   const summary = useMemo(() => {
@@ -36,7 +51,7 @@ export default function FilterDrawer({
   return (
     <div className="sz-drawer-root" data-testid="filter-drawer">
       <button type="button" className="sz-drawer-backdrop" data-testid="filter-backdrop" aria-label="Close filters" onClick={onClose} />
-      <aside className="sz-drawer" role="dialog" aria-label="Filters">
+      <aside className="sz-drawer" ref={panel} role="dialog" aria-modal="true" aria-label="Filters">
         <div className="sz-drawer-head">
           <h2>Filters</h2>
           <button type="button" className="sz-btn sz-btn-ghost" data-testid="filter-close" onClick={onClose}>Close</button>
@@ -45,12 +60,8 @@ export default function FilterDrawer({
 
         <label className="sz-meta">Category</label>
         <select className="sz-input" data-testid="drawer-cat" value={local.cat || ''} onChange={(e) => setLocal({ ...local, cat: e.target.value })}>
-          <option value="">All electronics</option>
-          <option value="phones">Phones</option>
-          <option value="laptops">Laptops</option>
-          <option value="audio">Audio</option>
-          <option value="monitors">Monitors</option>
-          <option value="accessories">Accessories</option>
+          <option value="">All categories</option>
+          {categories.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
 
         <label className="sz-meta">Brand</label>
@@ -103,7 +114,7 @@ export default function FilterDrawer({
           style={{ marginTop: 8 }}
           data-testid="filter-clear"
           onClick={() => {
-            const cleared = { cat: '', brand: '', minP: '', maxP: '', minR: '', feature: '', sort: 'rating', q: local.q || '' }
+            const cleared = { cat: '', brand: '', minP: '', maxP: '', minR: '', feature: '', sort: 'rating', q: '' }
             setLocal(cleared)
             onApply(cleared)
             onClose()

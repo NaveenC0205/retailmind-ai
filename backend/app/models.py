@@ -89,6 +89,13 @@ class Order(Base):
     items: Mapped[list["OrderItem"]] = relationship(lazy="selectin")
 
 
+class OrderCheckout(Base):
+    """Checkout details and retry identity; separate table keeps existing orders compatible."""
+    __tablename__ = "retail_order_checkouts"
+    order_id: Mapped[str] = mapped_column(ForeignKey("retail_orders.id"), primary_key=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class OrderItem(Base):
     __tablename__ = "retail_order_items"
     id: Mapped[str] = mapped_column(String, primary_key=True)

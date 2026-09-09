@@ -7,6 +7,7 @@ import Loading from '../components/Loading'
 const STATUSES = ['all', 'placed', 'packed', 'shipped', 'delivered', 'cancelled', 'returned']
 
 export default function OrdersPage() {
+  const [error, setError] = useState('')
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState('all')
@@ -21,7 +22,7 @@ export default function OrdersPage() {
     setLoading(true)
     fetchOrders()
       .then(setOrders)
-      .catch(() => setOrders([]))
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
 
@@ -39,6 +40,8 @@ export default function OrdersPage() {
       </div>
     )
   }
+
+  if (error) return <div className="sz-wrap"><p className="sz-page-error" role="alert">{error}</p><Link to="/store" className="sz-btn sz-btn-blue">Back to store</Link></div>
 
   if (loading) return <Loading label="Loading order history…" testId="orders-loading" />
 

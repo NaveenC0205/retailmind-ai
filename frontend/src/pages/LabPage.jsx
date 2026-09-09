@@ -10,18 +10,19 @@ export default function LabPage() {
 
   return (
     <div className="sz-wrap" data-testid="lab-page">
-      <h1 style={{ fontSize: 40, fontWeight: 600 }}>Test Lab</h1>
+      <span className="sz-eyebrow">YOUR AI LEARNING WORKSPACE</span><h1>Test. Inspect. Understand.</h1>
       <p style={{ color: 'var(--muted)' }}>
         Built for automation testing, API testing, and agentic / RAG / chatbot testing across frameworks.
       </p>
 
-      <LearningLab />
+      <nav className="sz-lab-jumps" aria-label="Test Lab sections"><a href="#workshop">01 · Guided workshop</a><a href="#frameworks">02 · Framework tester</a><a href="#browser-practice">03 · Browser & API practice</a></nav>
+      <div id="workshop"><LearningLab /></div>
 
-      <section style={{ marginTop: 28 }} data-testid="lab-agentic">
+      <section style={{ marginTop: 28 }} data-testid="lab-agentic" id="frameworks">
         <AgentLab />
       </section>
 
-      <section style={{ marginTop: 28 }} data-testid="lab-newtab">
+      <section style={{ marginTop: 28 }} data-testid="lab-newtab" id="browser-practice">
         <h2>New tab navigation</h2>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <a className="sz-btn sz-btn-blue" href="/shop/store" target="_blank" rel="noreferrer" data-testid="lab-open-store-tab">Open Store (new tab)</a>

@@ -35,7 +35,7 @@ export default function CartPage() {
               <Link to={`/product/${i.id}`} className="sz-card-title">{i.title}</Link>
               <div className="sz-price">{formatPrice(i.price)}</div>
               <select data-testid={`cart-qty-${i.id}`} value={i.qty} onChange={(e) => setCartQty(i.id, e.target.value)} className="sz-input" style={{ width: 80, marginTop: 8 }}>
-                {[1,2,3,4,5,6,7,8,9,10].map((n) => <option key={n} value={n}>{n}</option>)}
+                {Array.from({ length: Math.max(10, i.qty) }, (_, index) => index + 1).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
               <button type="button" className="sz-btn sz-btn-ghost" style={{ marginLeft: 8 }} data-testid={`cart-remove-${i.id}`} onClick={() => removeFromCart(i.id)}>Remove</button>
             </div>
@@ -49,7 +49,7 @@ export default function CartPage() {
           Proceed to delivery
         </button>
         <button type="button" className="sz-btn sz-btn-ghost sz-btn-full" style={{ marginTop: 8 }} data-testid="cart-ask-agent" onClick={() => askAgent(`Buy ${cart[0]?.title || 'these items'} with UPI`)}>
-          Ask agent to checkout with UPI
+          Ask agent to buy the first item with UPI
         </button>
       </div>
     </div>
