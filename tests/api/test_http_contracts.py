@@ -490,3 +490,14 @@ async def test_stream_returns_a_final_answer_and_reuses_guest_session(client):
     assert events['final']['conversation_id'] == first['conversation_id']
     assert events['final']['answer'].strip()
     assert 'done' in events
+
+
+async def test_learning_library_contains_only_public_policy_sources(client):
+    response = await client.get('/api/learning/policies')
+    assert response.status_code == 200
+    sources = response.json()['sources']
+    assert sources
+    assert any(source['family'] == 'return_policy' for source in sources)
+    assert all(source['family'] in {'return_policy', 'refund_policy', 'warranty_policy', 'shipping_policy', 'privacy_policy', 'promotions_policy'} for source in sources)
+    assert all(source['content'] and source['chunk_id'] for source in sources)
+    assert all(not source['chunk_id'].startswith('seller-') for source in sources)

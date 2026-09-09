@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   chatStream,
   fetchAgentStatus,
@@ -33,6 +33,7 @@ const PROBES = [
 ]
 
 export default function AgentLab() {
+  const requestRef = useRef(null)
   const [persona, setPersona] = useState(isAdmin() ? 'owner' : 'customer')
   const [mode, setMode] = useState('multi_agent')
   const [promptVersion, setPromptVersion] = useState('v1')
@@ -50,12 +51,15 @@ export default function AgentLab() {
   useEffect(() => {
     fetchAgentStatus().then(setHealth)
     fetchTools().then(setTools).catch(() => setTools(null))
-    fetchDatasets().then((d) => setDatasets(d.datasets || [])).catch(() => setDatasets([]))
+    fetchDatasets().then((d) => setDatasets((d.datasets || []).filter((item) => !['multiturn', 'calibration'].includes(item.kind)))).catch(() => setDatasets([]))
+    return () => requestRef.current?.abort()
   }, [])
 
   async function runProbe(text = message, nextMode = mode, nextPersona = persona) {
     const raw = (text || '').trim()
-    if (!raw) return
+    if (!raw || requestRef.current || (nextPersona === 'owner' && !isAdmin())) return
+    const ctrl = new AbortController()
+    requestRef.current = ctrl
     setBusy(true)
     setEvents([])
     setResult(null)
@@ -64,11 +68,12 @@ export default function AgentLab() {
         if (ev.type === 'agent' || ev.type === 'start' || ev.type === 'final') {
           setEvents((xs) => [...xs.slice(-24), { type: ev.type, data: ev.data }])
         }
-      }, { persona: nextPersona, mode: nextMode, promptVersion, productId: nextPersona === 'product' ? 'PR-P003' : undefined })
+      }, { persona: nextPersona, mode: nextMode, promptVersion, learn: false, signal: ctrl.signal, productId: nextPersona === 'product' ? 'PR-P003' : undefined })
       setResult(final)
     } catch (e) {
       setResult({ answer: String(e.message || e), error: true })
     } finally {
+      requestRef.current = null
       setBusy(false)
     }
   }
@@ -101,7 +106,7 @@ export default function AgentLab() {
         <p className="sz-meta">
           Switch LangGraph, single-agent, RAG, or chat. Owner persona needs seller login
           ({isLoggedIn() ? (isAdmin() ? 'owner session' : 'customer session') : 'guest'}).
-          Health: {health ? `${health.llm_backend} · ${health.llm_live ? 'live' : 'mock'} · ${health.tools} tools · teams ${(health.teams || []).join('/')}` : '…'}
+          Health: {health?.unavailable ? 'Unavailable' : health ? `${health.llm_backend} · ${health.llm_live ? 'live' : 'mock'} · ${health.tools} tools · teams ${(health.teams || []).join('/')}` : '…'}
         </p>
         <div className="sz-lab-grid">
           <label className="sz-meta">Persona
@@ -130,6 +135,7 @@ export default function AgentLab() {
               className="sz-btn sz-btn-ghost"
               style={{ fontSize: 11, padding: '6px 10px' }}
               data-testid="lab-probe"
+              disabled={busy || (p.persona === 'owner' && !isAdmin())}
               onClick={() => {
                 setPersona(p.persona)
                 setMode(p.mode)

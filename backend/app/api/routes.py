@@ -34,6 +34,8 @@ from app.models import (
     GateResult,
     GuardrailEvent,
     Inventory,
+    KBChunk,
+    KBDocument,
     MemoryRecord,
     Message,
     Order,
@@ -1345,6 +1347,21 @@ async def bulk_upload_products(
 # ======================================================================
 # evaluation console
 # ======================================================================
+
+@router.get("/api/learning/policies", tags=["evaluation"])
+async def learning_policies(session=Depends(get_session)):
+    """Public shop policies for manual grounding review; no internal SOPs or seller copy."""
+    families = ["return_policy", "refund_policy", "warranty_policy", "shipping_policy", "privacy_policy", "promotions_policy"]
+    rows = (await session.execute(
+        select(KBChunk, KBDocument).join(KBDocument, KBChunk.document_id == KBDocument.id)
+        .where(KBDocument.source_trust == "trusted", KBDocument.family.in_(families))
+        .order_by(KBDocument.family, KBDocument.version.desc(), KBChunk.ordinal)
+    )).all()
+    return {"sources": [{"chunk_id": c.id, "document_id": d.id, "family": d.family,
+                         "version": d.version, "heading": c.heading, "content": c.content,
+                         "effective_from": d.effective_from, "effective_to": d.effective_to}
+                        for c, d in rows]}
+
 
 @router.get("/api/datasets", tags=["evaluation"])
 async def list_datasets():
