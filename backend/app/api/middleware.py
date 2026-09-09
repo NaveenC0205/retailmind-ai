@@ -22,7 +22,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 # Paths that must answer even when a caller is rate limited or the ceiling is
 # hit, or the platform's own health checks start failing the deploy.
-EXEMPT_PREFIXES = ("/health", "/ready", "/ui", "/docs", "/openapi.json", "/favicon")
+EXEMPT_PREFIXES = (
+    "/health",
+    "/ready",
+    "/ui",
+    "/docs",
+    "/redoc",
+    "/swagger",
+    "/openapi.json",
+    "/favicon",
+)
 
 # Only metered endpoints count against the budget. Reading a trace is free;
 # starting an agent run is not.

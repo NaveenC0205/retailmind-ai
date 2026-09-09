@@ -7,6 +7,7 @@ export function getToken() {
 
 const CHAT_KEY_PREFIX = 'sz-chat-';
 const GUEST_SID_KEY = 'sz-guest-sid';
+let memoryGuestId;
 
 export function authHeaders(json = true) {
   const h = {};
@@ -23,15 +24,19 @@ export function chatActorId() {
   if (isLoggedIn()) {
     return `cust-${localStorage.getItem('customer_id') || 'anon'}`;
   }
-  let sid = sessionStorage.getItem(GUEST_SID_KEY);
+  let sid;
+  try { sid = sessionStorage.getItem(GUEST_SID_KEY); } catch { /* Optional storage. */ }
+  sid ||= memoryGuestId;
   if (!sid) {
-    sid = `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    sessionStorage.setItem(GUEST_SID_KEY, sid);
+    sid = `g-${crypto.randomUUID()}`;
+    memoryGuestId = sid;
+    try { sessionStorage.setItem(GUEST_SID_KEY, sid); } catch { /* Use this page session. */ }
   }
   return sid;
 }
 
 export function clearChatSessions() {
+  memoryGuestId = undefined;
   if (typeof window === 'undefined') return;
   const drop = [];
   for (let i = 0; i < sessionStorage.length; i += 1) {
@@ -126,9 +131,10 @@ export async function fetchOrders() {
 export async function fetchAgentStatus() {
   try {
     const res = await fetch(`${API}/health`);
+    if (!res.ok) throw new Error('Health check failed');
     return await res.json();
   } catch {
-    return { llm_live: false, llm_backend: 'mock', llm_model: 'mock-1' };
+    return { unavailable: true };
   }
 }
 
@@ -144,7 +150,12 @@ export async function chatStream(message, conversationId, onEvent, opts = {}) {
   };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
+  const cancel = () => ctrl.abort();
+  opts.signal?.addEventListener('abort', cancel, { once: true });
+  if (opts.signal?.aborted) ctrl.abort();
+  let reader;
   const headers = authHeaders();
+  if (!isLoggedIn()) headers['X-Chat-Session'] = chatActorId();
   try {
     const res = await fetch(`${API}/api/chat/stream`, {
       method: 'POST',
@@ -152,7 +163,7 @@ export async function chatStream(message, conversationId, onEvent, opts = {}) {
       body: JSON.stringify(payload),
       signal: ctrl.signal,
     });
-    if (!res.ok || !res.body) {
+    if ([404, 405, 501].includes(res.status)) {
       const fallback = await fetch(`${API}/api/chat`, {
         method: 'POST',
         headers,
@@ -164,35 +175,42 @@ export async function chatStream(message, conversationId, onEvent, opts = {}) {
       onEvent?.({ type: 'final', data });
       return data;
     }
-    const reader = res.body.getReader();
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(typeof data.detail === 'string' ? data.detail : `Chat failed (${res.status})`);
+    }
+    if (!res.body) throw new Error('Chat returned an empty response.');
+    reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
-    let eventName = 'message';
     let finalPayload = null;
-    while (true) {
+    function consume(chunk) {
+      let eventName = 'message';
+      const lines = [];
+      for (const line of chunk.split(/\r?\n/)) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        if (line.startsWith('data:')) lines.push(line.slice(5).replace(/^ /, ''));
+      }
+      if (!lines.length) return;
+      let data;
+      try { data = JSON.parse(lines.join('\n')); }
+      catch { throw new Error('Chat returned an invalid response. Please try again.'); }
+      if (eventName === 'error') throw new Error(data.message || data.detail || 'Chat failed');
+      onEvent?.({ type: eventName, data });
+      if (eventName === 'final') finalPayload = data;
+    }
+    while (!finalPayload) {
       const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const parts = buf.split('\n\n');
-      buf = parts.pop() || '';
-      for (const chunk of parts) {
-        let dataLine = '';
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('event:')) eventName = line.slice(6).trim();
-          if (line.startsWith('data:')) dataLine += line.slice(5).trim();
-        }
-        if (!dataLine) continue;
-        try {
-          const data = JSON.parse(dataLine);
-          onEvent?.({ type: eventName, data });
-          if (eventName === 'error') {
-            throw new Error(data.message || data.detail || 'Chat failed');
-          }
-          if (eventName === 'final') finalPayload = data;
-        } catch (err) {
-          if (err instanceof SyntaxError) continue;
-          throw err;
-        }
+      buf += done ? dec.decode() : dec.decode(value, { stream: true });
+      let boundary;
+      while ((boundary = /\r?\n\r?\n/.exec(buf))) {
+        consume(buf.slice(0, boundary.index));
+        buf = buf.slice(boundary.index + boundary[0].length);
+        if (finalPayload) break;
+      }
+      if (done) {
+        if (!finalPayload && buf.trim()) consume(buf);
+        break;
       }
     }
     if (!finalPayload) {
@@ -200,12 +218,17 @@ export async function chatStream(message, conversationId, onEvent, opts = {}) {
     }
     return finalPayload;
   } catch (e) {
-    if (e?.name === 'AbortError') {
+    if (e?.name === 'AbortError' && !opts.signal?.aborted) {
       throw new Error('That took too long. Try a shorter question, or sign in and retry.');
     }
     throw e;
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', cancel);
+    if (reader) {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
 }
 

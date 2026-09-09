@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.middleware import GatewayMiddleware
+from app.api.openapi import OPENAPI_TAGS, build_openapi, production_base_url
 from app.api.routes import router
 from app.config import get_settings
 from app.db import create_all, dispose, session_scope
@@ -63,15 +64,33 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     s = get_settings()
+    prod = (s.public_base_url or production_base_url()).rstrip("/")
     app = FastAPI(
         title=s.app_name,
         version="0.1.0",
         description=(
-            "Enterprise agentic AI retail platform, built as an environment for "
-            "AI evaluation and test engineering."
+            "ShopZone HTTP API: shop chat (including RAG policy Q&A), catalogue, "
+            "orders, admin desk, evaluation, and traces.\n\n"
+            "**Swagger UI** `/docs` (alias `/swagger`) · **ReDoc** `/redoc` · "
+            "**OpenAPI JSON** `/openapi.json`.\n\n"
+            f"Default Try-it-out server is **production**: `{prod}`.\n\n"
+            "Auth: `Authorization: Bearer <jwt>` from `/api/auth/login`, or demo "
+            "`Bearer customer:CU-1001` / `Bearer operator:op-1`."
         ),
+        openapi_tags=OPENAPI_TAGS,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+        swagger_ui_parameters={
+            "persistAuthorization": True,
+            "displayRequestDuration": True,
+            "tryItOutEnabled": True,
+            "filter": True,
+            "docExpansion": "list",
+        },
         lifespan=lifespan,
     )
+    app.openapi = lambda: build_openapi(app)  # type: ignore[method-assign]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -88,6 +107,12 @@ def create_app() -> FastAPI:
             access_password=s.access_password,
         )
     app.include_router(router)
+
+    @app.get("/swagger", include_in_schema=False)
+    async def swagger_alias():
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url="/docs", status_code=307)
 
     # Always register / so the site never 404s if static mount fails.
     @app.get("/", include_in_schema=False)

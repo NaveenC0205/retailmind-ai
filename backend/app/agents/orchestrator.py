@@ -43,6 +43,16 @@ from app.models import (
     ToolCall,
     new_id,
 )
+from app.nlp.understand import understand
+from app.nlp.routing import (
+    assistant_implies_checkout,
+    looks_like_address_confirm,
+    looks_like_checkout_followup,
+    looks_like_order_list,
+    looks_like_payment_choice,
+    looks_like_place_now,
+    looks_like_weak_confirm,
+)
 from app.prompts import get_prompt
 from app.provenance import Context, Provenance
 from app.security import Principal
@@ -73,10 +83,13 @@ def classify_mode(user_text: str, requested: str = "auto") -> tuple[str, str]:
     if any(k in text for k in ("pending order", "approve order", "reject order", "shop owner", "seller", "restock", "low stock", "inventory")):
         intent = "admin_ops"
     if any(k in text for k in (
-        "place order", "place an order", "buy now", "checkout", "create order", "want to buy",
-        "i want to order", "buy this", "buy the", "purchase this", "pay with", "payment method",
-        "payment option", "how do i pay", "cash on delivery", "order now",
+        "place order", "place an order", "place my order", "place it", "buy now", "checkout",
+        "create order", "want to buy", "i want to order", "buy this", "buy the", "buy it",
+        "purchase this", "pay with", "payment method", "payment option", "how do i pay",
+        "cash on delivery", "order now", "order for me", "order this", "order it",
     )):
+        intent = "checkout_help"
+    if looks_like_address_confirm(user_text) or looks_like_payment_choice(user_text) or looks_like_place_now(user_text):
         intent = "checkout_help"
     if any(k in text for k in ("return policy", "warranty", "shipping policy", "exchange policy")):
         intent = "policy"
@@ -282,8 +295,6 @@ class Orchestrator:
                 )
 
             clean_text = inbound.text
-            from app.nlp.understand import understand
-
             parsed = understand(clean_text)
             route_text = parsed.rewritten or clean_text
             resolved_mode, intent = classify_mode(route_text, mode)
@@ -345,14 +356,23 @@ class Orchestrator:
                     )
 
             # 2 -- dispatch
-            # The storefront always sends multi_agent. Only true greetings skip
-            # the specialist graph — typed product/order asks must still run tools.
-            simple_orders = await self._guided_my_orders(route_text, facts, intent, event_sink)
+            # Follow-ups like "use my existing address" / "UPI" / "ok" must not
+            # hit the order-list shortcut or the greeting smalltalk path.
+            in_checkout = await self._in_checkout_flow()
+            followup = looks_like_checkout_followup(route_text, allow_weak=in_checkout)
+            if followup:
+                intent = "checkout_help"
+                resolved_mode = "multi_agent"
+                facts["intent"] = intent
+
+            simple_orders = None
+            if not followup:
+                simple_orders = await self._guided_my_orders(route_text, facts, intent, event_sink)
             if simple_orders:
                 result = simple_orders
-            elif self._is_greeting(clean_text) and self.persona != "owner":
+            elif (not followup) and self._is_greeting(clean_text) and self.persona != "owner":
                 result = await self._run_chat(clean_text, facts)
-            elif resolved_mode == "chat":
+            elif resolved_mode == "chat" and not followup:
                 result = await self._run_chat(clean_text, facts)
             elif resolved_mode == "rag":
                 result = await self._run_rag(route_text, facts, intent)
@@ -541,6 +561,16 @@ class Orchestrator:
         ).scalars().all()
         return [(m.role, m.content) for m in reversed(list(rows))]
 
+    async def _in_checkout_flow(self) -> bool:
+        if self.product_id:
+            return True
+        for role, content in await self._recent_turns(8):
+            if role == "assistant" and assistant_implies_checkout(content or ""):
+                return True
+            if role == "user" and looks_like_place_now(content or ""):
+                return True
+        return False
+
     async def _prime_rag(self, text: str, facts: dict) -> dict:
         """Always retrieve trusted policy (+ product KB) so every agentic turn is grounded."""
         from app.rag.retrieve import Retriever
@@ -587,6 +617,7 @@ class Orchestrator:
             for k in (
                 "my order",
                 "place order",
+                "place it",
                 "buy now",
                 "buy this",
                 "checkout",
@@ -598,8 +629,12 @@ class Orchestrator:
                 "return this",
                 "payment method",
                 "how do i pay",
+                "order for me",
+                "existing address",
             )
         ):
+            return False
+        if looks_like_place_now(text) or looks_like_address_confirm(text) or looks_like_payment_choice(text):
             return False
         if intent in {
             "order_delay_refund",
@@ -867,35 +902,7 @@ class Orchestrator:
         """True for 'check/show my orders' and 'track my latest' without a specific OR- id."""
         if self.persona == "owner":
             return False
-        from app.llm.mock import extract_order_id
-
-        low = (text or "").lower()
-        if any(
-            k in low
-            for k in (
-                "cancel", "refund", "promo", "discount", "coupon",
-                "policy", "place order", "buy ", "shipment", "awb",
-            )
-        ):
-            return False
-        if "return" in low and "policy" not in low and intent != "order_list":
-            if intent in {"return_item"}:
-                return False
-        oid = extract_order_id(text)
-        if oid and ("where is" in low or "track" in low):
-            return False
-        if intent in {"order_list", "order_status"} and not oid:
-            return True
-        return any(
-            k in low
-            for k in (
-                "check order", "check orders", "show order", "show orders",
-                "see order", "see orders", "list order", "my orders",
-                "order history", "all my order", "irders", "track my",
-                "latest order", "my latest", "existing order", "order details",
-                "order detail", "order detils", "my existing", "check my order",
-            )
-        )
+        return looks_like_order_list(text, intent)
 
     async def _guided_my_orders(self, text: str, facts: dict, intent: str, event_sink=None):
         """Logged-in order list without a live-model detour that asks guests to sign in."""
@@ -988,13 +995,15 @@ class Orchestrator:
         if self.persona == "owner":
             return None
         low = (text or "").lower()
-        looks = intent == "checkout_help" or any(
-            k in low
-            for k in (
-                "place order", "place an order", "buy now", "checkout",
-                "i want to buy", "i want to order", "pay with", "order now", "buy this",
-            )
+        looks = (
+            intent == "checkout_help"
+            or looks_like_checkout_followup(low, allow_weak=False)
+            or looks_like_address_confirm(low)
+            or looks_like_payment_choice(text)
+            or looks_like_place_now(low)
         )
+        if not looks and looks_like_weak_confirm(text):
+            looks = await self._in_checkout_flow()
         if not looks:
             return None
         from app.llm.mock import extract_payment_method, extract_category
@@ -1004,6 +1013,14 @@ class Orchestrator:
             {"type": "agent_start", "agent": "checkout", "task": "collect details and place order", "framework": "checkout"},
         )
         pay = extract_payment_method(text) or facts.get("payment_method")
+        if not pay:
+            for _role, content in await self._recent_turns(8):
+                hist_pay = extract_payment_method(content or "")
+                if hist_pay:
+                    pay = hist_pay
+                    break
+        if not pay and (looks_like_address_confirm(low) or looks_like_place_now(low) or looks_like_weak_confirm(text)):
+            pay = "upi"
         if pay:
             facts["payment_method"] = pay
 

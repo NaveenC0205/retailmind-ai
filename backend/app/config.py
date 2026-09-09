@@ -32,6 +32,32 @@ _DEFAULT_DB = (
 )
 
 
+def supabase_postgres_url(
+    project_url: str,
+    password: str,
+    *,
+    region: str = "ap-northeast-1",
+) -> str:
+    """Build an async SQLAlchemy URI from a Supabase project URL + DB password.
+
+    Uses the shared IPv4 pooler (transaction mode, port 6543). Direct
+    ``db.<ref>.supabase.co`` is IPv6-only on the free tier and Vercel cannot
+    reach it. Username must be ``postgres.<ref>`` on the pooler.
+    """
+    from urllib.parse import quote, urlparse
+
+    host = (urlparse(project_url.strip()).hostname or "").strip()
+    ref = host.split(".")[0] if host else ""
+    if not ref or not password:
+        return ""
+    pw = quote(password, safe="")
+    rg = (region or "ap-northeast-1").strip() or "ap-northeast-1"
+    return (
+        f"postgresql+asyncpg://postgres.{ref}:{pw}"
+        f"@aws-0-{rg}.pooler.supabase.com:6543/postgres?ssl=require"
+    )
+
+
 def normalize_database_url(url: str) -> str:
     """Accept sqlite, postgres://, Supabase, and Neon URLs for SQLAlchemy async.
 
@@ -68,6 +94,11 @@ class Settings(BaseSettings):
 
     # --- storage -------------------------------------------------------
     database_url: str = _DEFAULT_DB
+    # Supabase project (FastAPI uses Postgres URI, not the Next.js JS client).
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    supabase_db_password: str = ""
+    supabase_db_region: str = "ap-northeast-1"
 
     # --- llm -----------------------------------------------------------
     # mock    : deterministic, offline, zero cost. Used by CI.
@@ -138,6 +169,8 @@ class Settings(BaseSettings):
     daily_request_limit: int = 0
     access_password: str = ""
     public_demo: bool = False
+    # Public origin for OpenAPI/Swagger "Try it out" (production first).
+    public_base_url: str = "https://retailmind-ai-ten.vercel.app"
 
     # --- paths ---------------------------------------------------------
     kb_dir: Path = REPO_ROOT / "kb"
@@ -228,6 +261,22 @@ def bind_hosted_llm(s: Settings) -> Settings:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     s = Settings()
+    url = (s.supabase_url or os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or "").strip()
+    key = (
+        s.supabase_publishable_key
+        or os.environ.get("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+        or ""
+    ).strip()
+    if url:
+        object.__setattr__(s, "supabase_url", url)
+    if key:
+        object.__setattr__(s, "supabase_publishable_key", key)
+    if s.supabase_db_password and url and (s.is_sqlite or not s.database_url):
+        built = supabase_postgres_url(
+            url, s.supabase_db_password, region=s.supabase_db_region
+        )
+        if built:
+            object.__setattr__(s, "database_url", built)
     object.__setattr__(s, "database_url", normalize_database_url(s.database_url) or s.database_url)
     # Vercel (and similar) ship a read-only filesystem except /tmp. If our
     # configured var_dir is not writable, fall back so import/startup cannot crash.

@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ----------------------------------------------------------------------
@@ -75,7 +75,24 @@ class CreateOrderIn(BaseModel):
     customer_id: str = Field(min_length=1)
     items: list[CreateOrderItemIn] = Field(min_length=1, max_length=20)
     payment_method: str = Field(default="upi", description="upi, card, or cod")
-    address: str = Field(default="")
+    address: str = Field(
+        default="",
+        description="Optional. Leave blank to use the customer's saved delivery address.",
+    )
+
+    @field_validator("address", mode="before")
+    @classmethod
+    def _coerce_address(cls, v):
+        if v is None:
+            return ""
+        return str(v).strip()
+
+    @field_validator("payment_method", mode="before")
+    @classmethod
+    def _coerce_pay(cls, v):
+        if v is None or str(v).strip() == "":
+            return "upi"
+        return str(v).strip().lower()
 
 
 class ShipmentIdIn(BaseModel):

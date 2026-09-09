@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { chatActorId, chatStream, fetchAgentStatus, isAdmin, isLoggedIn } from '../api'
+import { chatActorId, chatStream, fetchAgentStatus, getToken, isAdmin, isLoggedIn } from '../api'
 
 function customerCopy(loggedIn, name) {
   if (loggedIn) {
@@ -87,25 +87,45 @@ function statusFromEvent(data) {
   return base
 }
 
-export default function ChatWidget({
+export default function ChatWidget(props) {
+  const [identity, setIdentity] = useState(() => `${chatActorId()}:${getToken() || ''}`)
+  useEffect(() => {
+    const sync = () => setIdentity(`${chatActorId()}:${getToken() || ''}`)
+    window.addEventListener('storage', sync)
+    window.addEventListener('shopzone-store', sync)
+    return () => {
+      window.removeEventListener('storage', sync)
+      window.removeEventListener('shopzone-store', sync)
+    }
+  }, [])
+  return <ChatSession key={`${identity}:${props.persona}:${props.productContext?.id}:${props.mode}:${props.promptVersion}`} {...props} />
+}
+
+function ChatSession({
   persona = 'customer',
   productContext = null,
   forceHide = false,
   mode = 'multi_agent',
   promptVersion = 'v1',
 }) {
-  const [loggedIn, setLoggedIn] = useState(() => isLoggedIn())
+  const loggedIn = isLoggedIn()
   const name = typeof window !== 'undefined' ? (localStorage.getItem('customer_name') || '') : ''
   const actorId = typeof window !== 'undefined' ? chatActorId() : 'guest'
-  const cfg = welcomeFor(persona, loggedIn, name)
+  const cfg = useMemo(() => welcomeFor(persona, loggedIn, name), [persona, loggedIn, name])
   const storageKey = `sz-chat-${persona}-${productContext?.id || 'global'}-${actorId}`
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState(null)
-  const [msgs, setMsgs] = useState(() => [{ role: 'bot', text: cfg.welcome }])
-  const [conv, setConv] = useState(null)
-  const [suggests, setSuggests] = useState(() => cfg.suggests)
-  const [hydratedKey, setHydratedKey] = useState('')
+  const [saved] = useState(() => {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
+      if (value?.actor === actorId && Array.isArray(value.msgs) && value.msgs.length && value.msgs.every((m) => m && ['bot', 'user'].includes(m.role) && typeof m.text === 'string')) return value
+    } catch { /* Start fresh when storage is unavailable or invalid. */ }
+    return null
+  })
+  const [msgs, setMsgs] = useState(() => saved?.msgs || [{ role: 'bot', text: cfg.welcome }])
+  const [conv, setConv] = useState(() => typeof saved?.conv === 'string' ? saved.conv : null)
+  const [suggests, setSuggests] = useState(() => Array.isArray(saved?.suggests) && saved.suggests.every((s) => typeof s === 'string') ? saved.suggests : cfg.suggests)
   const [liveAgents, setLiveAgents] = useState([])
   const [lastMeta, setLastMeta] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -115,40 +135,12 @@ export default function ChatWidget({
   const inflightRef = useRef(false)
   const inputRef = useRef('')
 
-  useEffect(() => {
-    const sync = () => setLoggedIn(isLoggedIn())
-    window.addEventListener('storage', sync)
-    window.addEventListener('shopzone-store', sync)
-    return () => {
-      window.removeEventListener('storage', sync)
-      window.removeEventListener('shopzone-store', sync)
-    }
-  }, [])
+  const requestRef = useRef(null)
+  useEffect(() => () => requestRef.current?.abort(), [])
 
   useEffect(() => {
-    setHydratedKey('')
-    let nextMsgs = [{ role: 'bot', text: cfg.welcome }]
-    let nextConv = null
-    try {
-      const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
-      if (saved?.actor === actorId && saved?.msgs?.length) {
-        nextMsgs = saved.msgs
-        nextConv = saved.conv || null
-        if (saved.suggests?.length) setSuggests(saved.suggests)
-        else setSuggests(cfg.suggests)
-      } else {
-        setSuggests(cfg.suggests)
-      }
-    } catch { /* start fresh */ }
-    setMsgs(nextMsgs)
-    setConv(nextConv)
-    setHydratedKey(storageKey)
-  }, [storageKey, actorId, cfg.welcome])
-
-  useEffect(() => {
-    if (hydratedKey !== storageKey) return
-    sessionStorage.setItem(storageKey, JSON.stringify({ actor: actorId, msgs, conv, suggests }))
-  }, [msgs, conv, storageKey, actorId, hydratedKey])
+    try { sessionStorage.setItem(storageKey, JSON.stringify({ actor: actorId, msgs, conv, suggests })) } catch { /* Chat works when storage is full or unavailable. */ }
+  }, [msgs, conv, suggests, storageKey, actorId])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -159,21 +151,28 @@ export default function ChatWidget({
   }, [])
 
   useEffect(() => {
+    const timers = new Set()
     const onAsk = (e) => {
       const d = e.detail || {}
       if (d.persona && d.persona !== persona) return
       setOpen(true)
-      if (d.text) setTimeout(() => sendRef.current(d.text), 80)
+      if (d.text) timers.add(setTimeout(() => sendRef.current(d.text), 80))
     }
     window.addEventListener('shopzone-ask-agent', onAsk)
-    return () => window.removeEventListener('shopzone-ask-agent', onAsk)
+    return () => {
+      window.removeEventListener('shopzone-ask-agent', onAsk)
+      timers.forEach(clearTimeout)
+    }
   }, [persona])
 
   const liveLabel = useMemo(() => {
     if (!status) return 'Connecting…'
+    if (status.unavailable) return 'Connection unavailable · try again shortly'
     if (status.llm_live) return `Live · ${status.llm_backend} · ${status.llm_model}`
     return 'Demo mock · agents still place orders after you sign in'
   }, [status])
+
+  useEffect(() => { sendRef.current = send })
 
   if (forceHide) return null
   if (persona !== 'owner' && typeof window !== 'undefined' && window.location.pathname.includes('/admin') && isAdmin()) {
@@ -185,7 +184,10 @@ export default function ChatWidget({
     setConv(null)
     setMsgs([{ role: 'bot', text: cfg.welcome }])
     setSuggests(cfg.suggests)
-    sessionStorage.removeItem(storageKey)
+    setLastMeta(null)
+    setLiveAgents([])
+    setDraft('')
+    try { sessionStorage.removeItem(storageKey) } catch { /* optional persistence */ }
   }
 
   function setDraft(value) {
@@ -197,9 +199,11 @@ export default function ChatWidget({
     const raw = String(text != null && text !== '' ? text : inputRef.current || input).trim()
     if (!raw || inflightRef.current) return
     if (persona === 'customer' && !loggedIn && /sign in/i.test(raw) && raw.length < 40) {
-      window.location.href = '/shop/login'
+      window.location.assign('/shop/login')
       return
     }
+    const request = new AbortController()
+    requestRef.current = request
     inflightRef.current = true
     setBusy(true)
     setDraft('')
@@ -208,6 +212,7 @@ export default function ChatWidget({
     setMsgs((m) => [...m, { role: 'user', text: raw }])
     try {
       const final = await chatStream(raw, conv, (ev) => {
+        if (request.signal.aborted) return
         if (ev.type === 'agent' && ev.data?.type === 'agent_start') {
           setLiveAgents((a) => Array.from(new Set([...a, ev.data.agent])))
           setPendingStatus(statusFromEvent(ev.data))
@@ -219,7 +224,8 @@ export default function ChatWidget({
         if (ev.type === 'error') {
           throw new Error(ev.data?.message || 'Chat failed')
         }
-      }, { persona, productId: productContext?.id, mode, promptVersion })
+      }, { persona, productId: productContext?.id, mode, promptVersion, signal: request.signal })
+      if (request.signal.aborted) return
       if (final?.conversation_id) setConv(final.conversation_id)
       if (final?.suggestions?.length) setSuggests(final.suggestions)
       setLastMeta({
@@ -246,6 +252,7 @@ export default function ChatWidget({
       const answer = (rawAnswer || 'I could not finish that reply. Try once more — search, return policy, or your orders.') + (sub ? `\n\n${sub}` : '') + citeLine
       setMsgs((m) => [...m, { role: 'bot', text: answer }])
     } catch (e) {
+      if (request.signal.aborted) return
       setMsgs((m) => [...m, { role: 'bot', text: String(e.message || e) }])
     } finally {
       inflightRef.current = false
@@ -254,7 +261,6 @@ export default function ChatWidget({
     }
   }
 
-  sendRef.current = send
 
   if (!open) {
     return (
@@ -273,7 +279,7 @@ export default function ChatWidget({
   return (
     <>
       <button type="button" className={`sz-chat-fab ${persona === 'owner' ? 'owner' : ''}`} data-testid={`chat-fab-close-${persona}`} onClick={() => setOpen(false)}>×</button>
-      <div className="sz-chat-panel" data-testid={`chat-panel-${persona}`} role="dialog">
+      <div className="sz-chat-panel" data-testid={`chat-panel-${persona}`} role="dialog" aria-label={cfg.title}>
         <div className="sz-chat-head">
           <div className="sz-chat-head-row">
             <strong>{cfg.title}</strong>
@@ -330,6 +336,8 @@ export default function ChatWidget({
           <input
             data-testid={`chat-input-${persona}`}
             value={input}
+            aria-label="Message the assistant"
+            maxLength={8000}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={busy ? 'Waiting for the current reply…' : 'Ask anything — type and press Enter'}
             disabled={busy}

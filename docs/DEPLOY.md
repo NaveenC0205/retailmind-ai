@@ -22,17 +22,9 @@ real model behind it is one environment variable and is covered below.
 
 # Role: Customer vs Shop Owner
 
-Demo accounts (seeded):
-
-| Role | Email | Password | Lands on |
-|------|-------|----------|----------|
-| **Customer** | `customer@shopzone.in` | `customer123` | Shop home |
-| **Shop Owner** | `owner@shopzone.in` | `owner123` | Admin panel |
-
-Login page: `/shop/login.html` with **Customer Login** / **Shop Owner Login** tabs.
-
-Extra customers use password `demo123` (e.g. `priya@example.in`).
-
+Sign in at `/shop/login` with the account you were given. Use the **Customer**
+or **Shop Owner** tab so the app opens the shop or the admin desk. Accounts
+are not listed on the login screen.
 
 ---
 
@@ -80,16 +72,22 @@ Vercel’s default SQLite file lives in `/tmp` and is wiped on every cold start,
 so newly placed orders look like “mock data”. Point production at a free
 Postgres project:
 
-1. [Supabase](https://supabase.com) → New project → **Project Settings → Database → URI**  
-   or [Neon](https://neon.tech) → New project → connection string.
-2. Vercel → Project → Settings → Environment Variables → `DATABASE_URL`  
+1. [Supabase](https://supabase.com) → your project → **Connect** (or
+   **Project Settings → Database**). Copy the **URI** under Session or
+   Transaction pooler — not the Next.js `@supabase/ssr` snippet. This
+   FastAPI app talks SQLAlchemy, not a Next.js middleware client.
+2. Vercel → Project → Settings → Environment Variables → `DATABASE_URL`
    (production + preview). Paste the URI as copied; ShopZone rewrites
    `postgres://` to `postgresql+asyncpg://` and adds `ssl=require`.
+   Prefer the **pooler** host (`aws-0-<region>.pooler.supabase.com`) —
+   the direct `db.<ref>.supabase.co` host is IPv6-only and Vercel cannot
+   reach it. Alternatively set `SUPABASE_URL` + `SUPABASE_DB_PASSWORD`
+   (database password, not the publishable `sb_publishable_…` key).
 3. Redeploy. `/health` should show `"db": "postgres"`. First boot seeds the
    catalogue; after that, chat `create_order` / `get_orders` hit the same DB.
 
 ```
-DATABASE_URL=postgresql://postgres:[PASSWORD]@db.<ref>.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres.<ref>:[PASSWORD]@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres
 ```
 
 ## 2 · Render

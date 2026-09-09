@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 
 import asyncio
 import json
+import hashlib
+import secrets
 
 from app.agents.orchestrator import Orchestrator
 from app.config import get_settings
@@ -51,10 +53,16 @@ from app.tracing import current_trace, flush, new_trace
 router = APIRouter()
 
 
-async def bind_conversation(session, principal: Principal, requested_id: Optional[str], mode: str) -> str:
+async def bind_conversation(session, principal: Principal, requested_id: Optional[str], mode: str, guest_session: Optional[str] = None) -> str:
     """Reuse a thread only when it belongs to this person. Guests and other
     customers never continue someone else's (or a previous login's) chat."""
-    owner = principal.customer_id or "guest"
+    if principal.kind == "guest":
+        # A conversation id alone must never grant access to another guest's
+        # history. The browser holds a separate random session capability.
+        token = guest_session or secrets.token_urlsafe(32)
+        owner = "guest:" + hashlib.sha256(token.encode()).hexdigest()
+    else:
+        owner = principal.customer_id or f"{principal.kind}:{principal.subject_id}"
     if requested_id:
         row = await session.get(Conversation, requested_id)
         if row is not None and row.customer_id == owner:
@@ -79,6 +87,7 @@ async def health():
         "llm_model": s.llm_model if s.llm_backend != "mock" else "mock-1",
         "llm_live": s.llm_backend != "mock" and bool(s.openai_api_key or s.llm_provider == "ollama"),
         "db": "postgres" if s.is_postgres else "sqlite",
+        "supabase": bool(s.supabase_url),
         "embedding_provider": s.embedding_provider,
         "agentic": True,
         "teams": ["customer", "product", "owner"],
@@ -104,7 +113,11 @@ async def ready(session=Depends(get_session)):
 # authentication
 # ======================================================================
 
-@router.post("/api/auth/register", tags=["auth"])
+@router.post(
+    "/api/auth/register",
+    tags=["auth"],
+    summary="Register a customer",
+)
 async def register(
     body: "RegisterRequest",
     session=Depends(get_session),
@@ -124,7 +137,11 @@ async def register(
         raise HTTPException(400, str(e))
 
 
-@router.post("/api/auth/login", tags=["auth"])
+@router.post(
+    "/api/auth/login",
+    tags=["auth"],
+    summary="Login — returns Bearer access_token",
+)
 async def login(
     body: "LoginRequest",
     session=Depends(get_session),
@@ -177,13 +194,49 @@ class LoginRequest(BaseModel):
 # ======================================================================
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=8000)
-    conversation_id: Optional[str] = None
-    mode: str = "auto"
+    message: str = Field(
+        min_length=1,
+        max_length=8000,
+        description="Customer utterance. Policy questions (returns, warranty) use RAG.",
+        examples=["What is the return window for electronics?"],
+    )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Reuse a thread id from a previous chat response.",
+    )
+    mode: str = Field(
+        default="auto",
+        description="auto | chat | rag | agent | multi_agent. Shop UI usually sends multi_agent.",
+        examples=["multi_agent"],
+    )
     prompt_version: str = "v1"
     learn: bool = True
-    persona: str = "customer"  # customer | product | owner
-    product_id: Optional[str] = None
+    persona: str = Field(
+        default="customer",
+        description="customer | product | owner",
+        examples=["customer"],
+    )
+    product_id: Optional[str] = Field(
+        default=None,
+        description="Optional catalogue product id when chat is opened from a PDP.",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "message": "What is the return window for electronics?",
+                    "mode": "rag",
+                    "persona": "customer",
+                },
+                {
+                    "message": "Search for iPhone and give me the prices",
+                    "mode": "multi_agent",
+                    "persona": "customer",
+                },
+            ]
+        }
+    }
 
 
 class ChatResponse(BaseModel):
@@ -211,14 +264,21 @@ class ChatResponse(BaseModel):
     suggestions: list[str] = []
 
 
-@router.post("/api/chat", response_model=ChatResponse, tags=["chat"])
+@router.post(
+    "/api/chat",
+    response_model=ChatResponse,
+    tags=["chat"],
+    summary="Send a chat turn (shop assistant)",
+    response_description="Assistant answer, trace id, mode (rag/multi_agent/…), citations, suggestions.",
+)
 async def chat(
     body: ChatRequest,
+    guest_session: Optional[str] = Header(default=None, alias="X-Chat-Session", min_length=16, max_length=128),
     principal: Principal = Depends(require_principal),
     session=Depends(get_session),
 ):
     trace = new_trace()
-    conversation_id = await bind_conversation(session, principal, body.conversation_id, body.mode)
+    conversation_id = await bind_conversation(session, principal, body.conversation_id, body.mode, guest_session)
     session.add(
         Message(
             id=new_id("MSG"),
@@ -281,16 +341,22 @@ async def chat(
     )
 
 
-@router.post("/api/chat/stream", tags=["chat"])
+@router.post(
+    "/api/chat/stream",
+    tags=["chat"],
+    summary="Stream a chat turn (SSE)",
+    response_description="text/event-stream: start, agent, final, done events.",
+)
 async def chat_stream(
     body: ChatRequest,
+    guest_session: Optional[str] = Header(default=None, alias="X-Chat-Session", min_length=16, max_length=128),
     principal: Principal = Depends(require_principal),
     session=Depends(get_session),
 ):
     """SSE stream of LangGraph multi-agent events, then a final chat payload."""
     queue: asyncio.Queue = asyncio.Queue()
     mode = body.mode if body.mode != "auto" else "multi_agent"
-    conversation_id = await bind_conversation(session, principal, body.conversation_id, mode)
+    conversation_id = await bind_conversation(session, principal, body.conversation_id, mode, guest_session)
 
     async def event_sink(ev: dict):
         await queue.put({"event": "agent", "data": ev})
@@ -362,6 +428,7 @@ async def chat_stream(
                 }
             )
         except asyncio.TimeoutError:
+            await session.rollback()
             await queue.put(
                 {
                     "event": "final",
@@ -393,6 +460,7 @@ async def chat_stream(
                 }
             )
         except Exception as exc:  # noqa: BLE001
+            await session.rollback()
             await queue.put({"event": "error", "data": {"message": str(exc)}})
         finally:
             await queue.put(None)

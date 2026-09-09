@@ -159,6 +159,7 @@ async def ingest_kb(session, kb_dir: Path | None = None) -> dict:
             )
 
     vectors = await embedder.embed([c.content for c in chunk_rows]) if chunk_rows else []
+    await session.flush()
     for chunk, vec in zip(chunk_rows, vectors):
         chunk.embedding = vec
         chunk.meta = {**chunk.meta, "embedder": embedder.name}

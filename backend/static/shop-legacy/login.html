@@ -31,18 +31,12 @@
 
         <form onsubmit="handleLogin(event)">
             <label style="font-size:12px;letter-spacing:.08em;text-transform:uppercase">Email</label>
-            <input type="email" id="loginEmail" class="cm-input" required placeholder="customer@shopzone.in">
+            <input type="email" id="loginEmail" class="cm-input" required placeholder="Email" autocomplete="username">
             <label style="font-size:12px;letter-spacing:.08em;text-transform:uppercase">Password</label>
-            <input type="password" id="loginPassword" class="cm-input" required>
+            <input type="password" id="loginPassword" class="cm-input" required placeholder="Password" autocomplete="current-password">
             <div id="loginError" style="display:none;color:#9b2c2c;font-size:13px;margin-bottom:12px"></div>
             <button type="submit" class="cm-btn cm-btn-dark" style="width:100%" id="loginBtn">Sign in</button>
         </form>
-
-        <div class="demo-box" id="demo-creds">
-            <strong>Demo Customer</strong><br>
-            Email: <code>customer@shopzone.in</code><br>
-            Password: <code>customer123</code>
-        </div>
 
         <div style="text-align:center;margin:20px 0 8px;font-size:12px;color:var(--cm-muted)" id="register-divider">New to ShopZone?</div>
         <button class="cm-btn cm-btn-outline" style="width:100%" id="create-account-btn" onclick="showRegister()">Create account</button>
@@ -85,25 +79,16 @@
             document.getElementById('tab-customer').classList.toggle('active', role === 'customer');
             document.getElementById('tab-owner').classList.toggle('active', role === 'owner');
             const hint = document.getElementById('role-hint');
-            const demo = document.getElementById('demo-creds');
-            const email = document.getElementById('loginEmail');
             const createBtn = document.getElementById('create-account-btn');
             const divider = document.getElementById('register-divider');
+            document.getElementById('loginPassword').value = '';
 
             if (role === 'owner') {
-                hint.textContent = 'Shop Owner — manage catalogue and orders with LangGraph admin agents.';
-                demo.innerHTML = `<strong>Demo Shop Owner</strong><br>Email: <code>owner@shopzone.in</code><br>Password: <code>owner123</code>`;
-                email.placeholder = 'owner@shopzone.in';
-                email.value = 'owner@shopzone.in';
-                document.getElementById('loginPassword').value = 'owner123';
+                hint.textContent = 'Shop Owner — manage catalogue and orders.';
                 createBtn.style.display = 'none';
                 divider.style.display = 'none';
             } else {
                 hint.textContent = 'Shop as a customer — browse, order, track deliveries.';
-                demo.innerHTML = `<strong>Demo Customer</strong><br>Email: <code>customer@shopzone.in</code><br>Password: <code>customer123</code>`;
-                email.placeholder = 'customer@shopzone.in';
-                email.value = 'customer@shopzone.in';
-                document.getElementById('loginPassword').value = 'customer123';
                 createBtn.style.display = 'block';
                 divider.style.display = 'block';
             }

@@ -29,6 +29,10 @@ bootstrap: ## Create tables, seed business data, ingest the knowledge base
 dev: ## Run the API + React shop on http://localhost:$(PORT)
 	.venv/bin/uvicorn app.main:app --app-dir backend --reload --port $(PORT)
 
+swagger: ## Open Swagger UI (Try it out defaults to production)
+	@echo "Swagger: http://localhost:$(PORT)/docs  (server: production)"
+	open "http://localhost:$(PORT)/docs"
+
 frontend-dev: ## Vite React shop (proxies /api → :8000)
 	cd frontend && npm run dev
 

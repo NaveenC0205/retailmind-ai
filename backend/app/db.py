@@ -1,6 +1,7 @@
 """Async engine + session factory."""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -10,12 +11,28 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 from app.models import Base
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+
+
+def _postgres_engine_kwargs(url: str) -> dict:
+    """Vercel is IPv4 + serverless; Supabase transaction pooler needs no prepared statements."""
+    kwargs: dict = {"echo": False, "future": True, "pool_pre_ping": True}
+    pooled = ":6543" in url or "pooler.supabase" in url or "pgbouncer" in url.lower()
+    serverless = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+    if serverless:
+        kwargs["poolclass"] = NullPool
+    else:
+        kwargs["pool_size"] = 5
+        kwargs["max_overflow"] = 5
+    if pooled:
+        kwargs["connect_args"] = {"statement_cache_size": 0}
+    return kwargs
 
 
 def get_engine() -> AsyncEngine:
@@ -26,8 +43,7 @@ def get_engine() -> AsyncEngine:
         if s.is_sqlite:
             kwargs["connect_args"] = {"check_same_thread": False}
         elif s.is_postgres:
-            kwargs["pool_size"] = 5
-            kwargs["max_overflow"] = 5
+            kwargs = _postgres_engine_kwargs(s.database_url)
         _engine = create_async_engine(s.database_url, **kwargs)
     return _engine
 

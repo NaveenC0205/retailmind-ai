@@ -4,8 +4,8 @@ import { login, register, saveSession } from '../api'
 
 export default function LoginPage() {
   const [role, setRole] = useState('customer')
-  const [email, setEmail] = useState('customer@shopzone.in')
-  const [password, setPassword] = useState('customer123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [mode, setMode] = useState('login')
   const [err, setErr] = useState('')
@@ -15,11 +15,7 @@ export default function LoginPage() {
 
   function switchRole(r) {
     setRole(r)
-    if (r === 'owner') {
-      setEmail('owner@shopzone.in'); setPassword('owner123')
-    } else {
-      setEmail('customer@shopzone.in'); setPassword('customer123')
-    }
+    setPassword('')
   }
 
   async function onSubmit(e) {
@@ -50,13 +46,13 @@ export default function LoginPage() {
         {mode === 'register' && (
           <>
             <label className="sz-meta">Name</label>
-            <input className="sz-input" data-testid="register-name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <input className="sz-input" data-testid="register-name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
           </>
         )}
         <label className="sz-meta">Email</label>
-        <input className="sz-input" data-testid="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input className="sz-input" data-testid="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="username" placeholder="Email" />
         <label className="sz-meta">Password</label>
-        <input className="sz-input" data-testid="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <input className="sz-input" data-testid="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" placeholder="Password" />
         {err && <p data-testid="login-error" style={{ color: '#b00020' }}>{err}</p>}
         <button type="submit" className="sz-btn sz-btn-blue sz-btn-full" style={{ marginTop: 12 }} data-testid="login-submit">
           {mode === 'login' ? 'Sign in' : 'Create account'}
@@ -67,7 +63,6 @@ export default function LoginPage() {
           {mode === 'login' ? 'Create account' : 'Back to sign in'}
         </button>
       )}
-      <p className="sz-meta" style={{ marginTop: 16 }} data-testid="demo-creds">Demo: customer@shopzone.in / customer123 · owner@shopzone.in / owner123</p>
     </div>
   )
 }

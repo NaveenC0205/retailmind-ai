@@ -95,6 +95,14 @@ def validate(ds: Dataset) -> list[str]:
             seen.add(item["id"])
         if "input" not in item or not isinstance(item["input"], dict):
             problems.append(f"{loc}: missing input object")
+        elif ds.kind == "multiturn":
+            turns = item["input"].get("turns")
+            if not isinstance(turns, list) or not turns:
+                problems.append(f"{loc}: input.turns must be a non-empty list")
+            else:
+                for index, turn in enumerate(turns):
+                    if not isinstance(turn, dict) or turn.get("role") not in {"user", "assistant", "system"} or not isinstance(turn.get("text"), str) or not turn["text"].strip():
+                        problems.append(f"{loc}: invalid turn {index}")
         elif "text" not in item["input"]:
             problems.append(f"{loc}: input.text is required")
         if "expected" not in item or not isinstance(item["expected"], dict):

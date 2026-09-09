@@ -121,7 +121,7 @@ export default function AgentLab() {
             </select>
           </label>
         </div>
-        {ownerLocked && <p className="sz-meta">Sign in as owner@shopzone.in to run the seller team.</p>}
+        {ownerLocked && <p className="sz-meta">Sign in as a shop owner to run the seller team.</p>}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '12px 0' }}>
           {PROBES.map((p) => (
             <button

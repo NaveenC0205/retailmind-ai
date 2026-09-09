@@ -9,6 +9,8 @@ pytestmark = pytest.mark.api
 
 NAVEEN = {"Authorization": "Bearer customer:CU-1001"}
 PRIYA = {"Authorization": "Bearer customer:CU-1002"}
+# Place-order tests must not mutate CU-1001; trajectory evals need that seed.
+SHOPPER = {"Authorization": "Bearer customer:CU-1004"}
 OPERATOR = {"Authorization": "Bearer operator:op-1"}
 
 
@@ -182,7 +184,7 @@ async def test_logged_in_checkout_asks_for_payment_then_places(client):
     ask = (await client.post(
         "/api/chat",
         json={"message": "buy iPhone 15", "mode": "multi_agent"},
-        headers=NAVEEN,
+        headers=SHOPPER,
     )).json()
     assert "UPI" in ask["answer"] or "upi" in ask["answer"].lower()
     assert ask.get("suggestions")
@@ -193,11 +195,77 @@ async def test_logged_in_checkout_asks_for_payment_then_places(client):
             "mode": "multi_agent",
             "conversation_id": ask["conversation_id"],
         },
-        headers=NAVEEN,
+        headers=SHOPPER,
     )).json()
     low = placed["answer"].lower()
     assert "placed" in low or "or-" in low
     assert any("order" in s.lower() for s in (placed.get("suggestions") or ["Show my recent orders"]))
+
+
+async def test_existing_address_places_order_instead_of_listing(client):
+    ask = (await client.post(
+        "/api/chat",
+        json={"message": "buy iPhone 15", "mode": "multi_agent"},
+        headers=SHOPPER,
+    )).json()
+    placed = (await client.post(
+        "/api/chat",
+        json={
+            "message": "use my existing address",
+            "mode": "multi_agent",
+            "conversation_id": ask["conversation_id"],
+        },
+        headers=SHOPPER,
+    )).json()
+    low = placed["answer"].lower()
+    assert "placed" in low or "or-" in low
+    assert "deliver" in low or "bengaluru" in low or "address" in low or "mg road" in low
+    assert "here are your recent" not in low
+
+
+@pytest.mark.parametrize("followup", ["UPI", "ok", "yes", "go ahead", "use saved address", "ship it"])
+async def test_checkout_followups_place_after_product_search(client, followup):
+    ask = (await client.post(
+        "/api/chat",
+        json={"message": "buy iPhone 15", "mode": "multi_agent"},
+        headers=SHOPPER,
+    )).json()
+    placed = (await client.post(
+        "/api/chat",
+        json={
+            "message": followup,
+            "mode": "multi_agent",
+            "conversation_id": ask["conversation_id"],
+        },
+        headers=SHOPPER,
+    )).json()
+    low = placed["answer"].lower()
+    assert "placed" in low or "or-" in low, placed["answer"]
+    assert "here are your recent" not in low
+
+
+async def test_order_for_me_places_logged_in(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "order new iphone for me", "mode": "multi_agent"},
+        headers=SHOPPER,
+    )).json()
+    low = body["answer"].lower()
+    assert "placed" in low or "or-" in low
+    assert "iphone" in low
+    assert "here are your recent" not in low
+
+
+async def test_typo_search_and_place_is_checkout(client):
+    body = (await client.post(
+        "/api/chat",
+        json={"message": "search fr new iphone and plave me the roder", "mode": "multi_agent"},
+        headers=SHOPPER,
+    )).json()
+    low = body["answer"].lower()
+    assert "sign in" not in low
+    assert "placed" in low or "upi" in low or "or-" in low or "iphone" in low
+    assert "here are your recent" not in low
 
 
 async def test_owner_agent_lists_pending_and_low_stock(client):
@@ -391,3 +459,34 @@ async def test_an_eval_run_can_be_triggered_over_http(client):
 
 async def test_unknown_trace_returns_404(client):
     assert (await client.get("/api/traces/tr-nope")).status_code == 404
+
+
+async def test_guest_conversation_requires_the_same_browser_session(client):
+    first_headers = {'X-Chat-Session': 'guest-session-one-0123456789'}
+    first = (await client.post('/api/chat', json={'message': 'hello'}, headers=first_headers)).json()
+    payload = {'message': 'hello again', 'conversation_id': first['conversation_id']}
+    same = (await client.post('/api/chat', json=payload, headers=first_headers)).json()
+    assert same['conversation_id'] == first['conversation_id']
+    other = (await client.post('/api/chat', json=payload, headers={'X-Chat-Session': 'guest-session-two-0123456789'})).json()
+    assert other['conversation_id'] != first['conversation_id']
+    anonymous = (await client.post('/api/chat', json=payload)).json()
+    assert anonymous['conversation_id'] != first['conversation_id']
+
+
+async def test_stream_returns_a_final_answer_and_reuses_guest_session(client):
+    import json
+    headers = {'X-Chat-Session': 'stream-session-0123456789'}
+    first = (await client.post('/api/chat', json={'message': 'hello'}, headers=headers)).json()
+    response = await client.post('/api/chat/stream', json={
+        'message': 'What is the return policy?',
+        'conversation_id': first['conversation_id'],
+        'mode': 'rag',
+    }, headers=headers)
+    assert response.status_code == 200
+    events = {}
+    for block in response.text.strip().split('\n\n'):
+        lines = block.splitlines()
+        events[lines[0].removeprefix('event: ')] = json.loads(lines[1].removeprefix('data: '))
+    assert events['final']['conversation_id'] == first['conversation_id']
+    assert events['final']['answer'].strip()
+    assert 'done' in events

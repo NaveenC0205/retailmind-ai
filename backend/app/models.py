@@ -25,7 +25,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    # Naive UTC: SQLite and Postgres TIMESTAMP WITHOUT TIME ZONE both accept it.
+    # asyncpg rejects tz-aware values against TIMESTAMP WITHOUT TIME ZONE.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def new_id(prefix: str) -> str:

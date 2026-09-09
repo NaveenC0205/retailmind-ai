@@ -374,6 +374,40 @@ async def cancel_order(session, principal, args: dict) -> dict:
     return {"order_id": o.id, "cancelled": True, "refund_initiated": True}
 
 
+_SAVED_ADDRESSES = {
+    "IN-KA": "12 MG Road, Bengaluru, Karnataka 560001",
+    "IN-MH": "Bandra West, Mumbai, Maharashtra 400050",
+    "IN-TN": "Anna Nagar, Chennai, Tamil Nadu 600040",
+    "IN-DL": "Connaught Place, New Delhi 110001",
+    "IN-GJ": "SG Highway, Ahmedabad, Gujarat 380015",
+}
+_ADDRESS_PLACEHOLDERS = {
+    "",
+    "existing",
+    "saved",
+    "same",
+    "n/a",
+    "na",
+    "none",
+    "my address",
+    "existing address",
+    "saved address",
+    "same address",
+    "use my existing address",
+    "use existing address",
+    "use my address",
+    "my existing address",
+}
+
+
+def resolve_delivery_address(customer: Customer | None, explicit: str = "") -> str:
+    raw = (explicit or "").strip()
+    if raw and raw.lower() not in _ADDRESS_PLACEHOLDERS:
+        return raw
+    region = (customer.region if customer else "") or "IN-KA"
+    return _SAVED_ADDRESSES.get(region, _SAVED_ADDRESSES["IN-KA"])
+
+
 async def create_order(session, principal, args: dict) -> dict:
     items = args.get("items", [])
     if not items:
@@ -439,6 +473,7 @@ async def create_order(session, principal, args: dict) -> dict:
         )
 
     method = payment.method
+    address = resolve_delivery_address(customer, args.get("address") or "")
     return {
         "order_id": order_id,
         "status": "placed",
@@ -446,11 +481,13 @@ async def create_order(session, principal, args: dict) -> dict:
         "payment_method": method,
         "payment_id": payment.id,
         "payment_status": payment.status,
+        "address": address,
         "items_count": len(order_items),
         "items": item_out,
         "message": (
             f"Order {order_id} placed. Total Rs {total_inr}. "
-            f"Paid via {method} ({payment.status})."
+            f"Paid via {method} ({payment.status}). "
+            f"Delivering to {address}."
         ),
     }
 
@@ -960,7 +997,7 @@ def _register_all() -> None:
     R(ToolContract("get_orders", "List the calling customer's own recent orders, newest first, with status, total and line items.", GetOrdersIn, ("orders:read",), get_orders, ownership=own_customer_arg))
     R(ToolContract("get_order", "Fetch one order by order_id, including its line items.", OrderIdIn, ("orders:read",), get_order, ownership=own_order))
     R(ToolContract("cancel_order", "Cancel an order that has not yet shipped. Fails safely if it has.", CancelOrderIn, ("orders:write",), cancel_order, side_effects=True, ownership=own_order, hitl=hitl_high_value_cancel, cost_class="write_financial"))
-    R(ToolContract("create_order", "Place an order for the logged-in customer. Requires customer_id, items [{product_id, qty}], and payment_method: upi, card, or cod. Returns order id, total, payment method and line items.", CreateOrderIn, ("orders:write",), create_order, side_effects=True, ownership=own_customer_arg, cost_class="write_financial"))
+    R(ToolContract("create_order", "Place an order for the logged-in customer. Requires customer_id and items [{product_id, qty}]. payment_method defaults to upi. address is optional — omit it to ship to the customer's saved address. Never fail just because address is missing. Returns order id, total, payment, address and line items.", CreateOrderIn, ("orders:write",), create_order, side_effects=True, ownership=own_customer_arg, cost_class="write_financial"))
 
     R(ToolContract("get_shipment", "Fetch the shipment for an order: carrier, AWB, status, promised date and lateness.", OrderIdIn, ("shipping:read",), get_shipment, ownership=own_order))
     R(ToolContract("track_shipment", "Fetch the full scan history for a shipment by shipment_id.", ShipmentIdIn, ("shipping:read",), track_shipment, ownership=own_shipment))

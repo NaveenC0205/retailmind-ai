@@ -37,21 +37,23 @@ from app.llm.base import Completion, CompletionRequest
 # a question about the rules, not about this customer's money.
 _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("order_delay_refund", ("delay", "late", "not arrived", "hasn't arrived", "stuck")),
-    ("policy", ("policy", "warranty", "return window", "deliver to", "how long do i have",
-                "seller", "is that true", "entitled to")),
+    ("policy", ("policy", "warranty", "return window", "how long do i have",
+                "is that true", "entitled to")),
     ("cancel_order", ("cancel my order", "cancel order", "cancel the order")),
     ("return_item", ("return this", "want to return", "return my", "start a return")),
+    ("checkout_help", ("buy now", "place order", "place an order", "place my order",
+                       "place it", "i want to order", "i want to buy", "checkout",
+                       "want to buy", "buy this", "buy it", "order now", "order for me",
+                       "order this", "order it", "pay with", "payment method",
+                       "payment option", "how do i pay", "cash on delivery")),
     ("order_list", ("my orders", "recent orders", "order history", "my recent orders",
                     "list my orders", "all my orders", "check order", "check orders",
                     "show order", "show orders", "see order", "see orders",
                     "list order", "your orders", "existing order", "order details",
-                    "order detail", "order detils", "my existing", "get the order",
+                    "order detail", "order detils", "my existing order", "get the order",
                     "get my order", "i placed", "order i placed", "the order i")),
     ("order_status", ("where is my order", "order status", "track", "my order")),
     ("refund_status", ("refund", "money back")),
-    ("checkout_help", ("buy now", "place order", "place an order", "i want to order",
-                       "i want to buy", "checkout", "want to buy", "buy this", "buy it",
-                       "order now", "pay with", "payment method", "payment option", "how do i pay")),
     ("admin_ops", ("pending order", "approve order", "reject order", "low stock",
                    "need restock", "need stock", "list pending", "order queue",
                    "restock")),
@@ -64,7 +66,7 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
-_ORDER_REF = re.compile(r"\bOR-[A-Za-z0-9]{4,}\b")
+_ORDER_REF = re.compile(r"\bOR-[A-Za-z0-9]{4,}\b", re.IGNORECASE)
 
 
 def detect_intent(text: str) -> str:
@@ -72,6 +74,8 @@ def detect_intent(text: str) -> str:
 
     low = rewrite_query(text or "").lower()
     for intent, needles in _INTENT_RULES:
+        if intent == "shopping" and _ORDER_REF.search(text or ""):
+            return "order_status"
         if any(n in low for n in needles):
             return intent
     # A bare order reference is an order question even without the word "my".
@@ -82,21 +86,22 @@ def detect_intent(text: str) -> str:
 
 def extract_order_id(text: str) -> Optional[str]:
     m = _ORDER_REF.search(text or "")
-    return m.group(0) if m else None
+    return m.group(0).upper() if m else None
 
 
-_PRICE = re.compile(r"(?:₹|rs\.?|inr)?\s*([\d,]{3,})\s*(k)?", re.IGNORECASE)
+_PRICE = re.compile(r"(?:₹|rs\.?|inr)?\s*(\d[\d,]*\d)\s*(k)?", re.IGNORECASE)
 
 
 def extract_budget_inr(text: str) -> Optional[int]:
-    low = (text or "").lower()
+    low = re.sub(r"\b[A-Z]{2,}-[A-Z0-9]+\b", "", text or "", flags=re.IGNORECASE).lower()
     m = re.search(r"(\d+)\s*k\b", low)
     if m:
         return int(m.group(1)) * 1000
     m = _PRICE.search(low)
     if m:
         try:
-            return int(m.group(1).replace(",", ""))
+            value = int(m.group(1).replace(",", ""))
+            return value if value >= 100 or re.search(r"₹|\brs\.?|\binr", low) else None
         except ValueError:
             return None
     return None
@@ -133,11 +138,11 @@ def extract_min_rating(text: str) -> Optional[float]:
 
 def extract_payment_method(text: str) -> Optional[str]:
     low = (text or "").lower()
-    if "cod" in low or "cash on delivery" in low or "cash-on-delivery" in low:
+    if re.search(r"\b(cod|cash[\s-]+on[\s-]+delivery)\b", low):
         return "cod"
-    if "upi" in low or "gpay" in low or "phonepe" in low or "paytm" in low:
+    if re.search(r"\b(upi|gpay|phonepe|paytm)\b", low):
         return "upi"
-    if "card" in low or "credit" in low or "debit" in low or "visa" in low:
+    if re.search(r"\b(cards?|credit|debit|visa|mastercard)\b", low):
         return "card"
     return None
 
@@ -171,7 +176,7 @@ def extract_category(text: str) -> Optional[str]:
 # injection payload recognition (used ONLY by naive mode)
 # ----------------------------------------------------------------------
 
-_ORDER_ID = re.compile(r"\bOR-[A-Za-z0-9]{4,}\b")
+_ORDER_ID = re.compile(r"\bOR-[A-Za-z0-9]{4,}\b", re.IGNORECASE)
 _CUSTOMER_ID = re.compile(r"\bCU-[A-Za-z0-9]{3,}\b")
 
 _INJECTION_MARKERS = (

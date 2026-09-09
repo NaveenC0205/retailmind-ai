@@ -96,8 +96,10 @@ def _system_prompt(orch) -> str:
         f"customer_id={cid}. logged_in={logged}. "
         "Search with search_products (use brand/category when they named them, e.g. Samsung laptops). "
         "Order history: get_orders. A named past order (e.g. hot box): get_orders then match titles. "
-        "To place an order: search_products, then list_payment_methods if they did not name UPI/Card/COD, "
-        "then create_order with customer_id, items [{product_id, qty: 1}], payment_method upi|card|cod. "
+        "To place an order: search_products, then create_order with customer_id, items [{product_id, qty: 1}], "
+        "and payment_method upi|card|cod (default upi). Do not ask for a street address — omit address and "
+        "the shop ships to the customer's saved address. If they say use my existing/saved address, call "
+        "create_order immediately with the product from this conversation. "
         "If they said order/buy/for me and named a product and are logged in but skipped payment, use upi and say so. "
         "Guests cannot create_order — tell them to sign in. "
         "Never reply with 'please hold on' or a generic hello when they asked to search or order. "
@@ -126,6 +128,7 @@ def _build_tools(orch, tool_names: tuple[str, ...]):
             ArgModel = create_model(f"{name}_Args", **fields)
 
         async def _run(_tool=name, **kwargs):
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
             cid = orch.principal.customer_id
             if cid and _tool in (
                 "get_orders",
@@ -182,10 +185,17 @@ async def run_react_shopper(orch, text: str, facts: dict, event_sink=None):
         prompt=_system_prompt(orch),
         name=f"{orch.persona or 'customer'}_react",
     )
+    messages = []
+    for role, content in await orch._recent_turns(8):
+        if not content:
+            continue
+        mapped = "user" if role == "user" else "assistant"
+        messages.append({"role": mapped, "content": str(content)[:1500]})
+    messages.append({"role": "user", "content": text})
     with span("langgraph.react_shopper", persona=orch.persona or "customer"):
         result = await asyncio.wait_for(
             agent.ainvoke(
-                {"messages": [{"role": "user", "content": text}]},
+                {"messages": messages},
                 {"recursion_limit": 6},
             ),
             timeout=16,

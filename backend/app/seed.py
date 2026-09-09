@@ -263,11 +263,15 @@ async def seed(session, now: datetime | None = None) -> dict:
         session.add(c)
 
     # -- catalogue -----------------------------------------------------
+    # Flush products before inventory/orders: Postgres checks FKs immediately
+    # (SQLite often defers them until commit).
     for pid, sku, title, brand, cat, price, rating, attrs, desc in PRODUCTS:
         session.add(
             Product(id=pid, sku=sku, title=title, brand=brand, category=cat,
                     price_inr=price, rating=rating, attributes=attrs, description_raw=desc)
         )
+    await session.flush()
+    for pid, *_rest in PRODUCTS:
         session.add(Inventory(product_id=pid, warehouse="BLR-1", qty_available=45, qty_reserved=3))
         session.add(Inventory(product_id=pid, warehouse="MUM-2", qty_available=28, qty_reserved=1))
         session.add(Inventory(product_id=pid, warehouse="DEL-3", qty_available=20, qty_reserved=0))

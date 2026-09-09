@@ -135,7 +135,14 @@ def rerank(
         head = set(content_terms(h.heading))
         covered = sum(w for t, w in weights.items() if t in body)
         head_cov = sum(w for t, w in weights.items() if t in head)
-        h.rerank_score = round((covered / total) + 0.35 * (head_cov / total), 6)
+        score = (covered / total) + 0.35 * (head_cov / total)
+        # Store-policy questions should prefer the authoritative policy over a
+        # catalogue description that happens to mention the same product type.
+        policy_terms = {"warranty", "return", "returns", "refund", "shipping", "privacy"}
+        if policy_terms.intersection(q_terms) and h.family.endswith("_policy") and h.trust == "trusted":
+            if policy_terms.intersection(q_terms).intersection(body | head):
+                score += 0.35
+        h.rerank_score = round(score, 6)
     return sorted(hits, key=lambda h: (h.rerank_score, h.score), reverse=True)
 
 
